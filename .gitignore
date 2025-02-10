@@ -1,1 +1,24 @@
-node_modules
+# Node modules (라이브러리 파일들)
+node_modules/
+
+# 빌드 결과물 (컴파일된 코드)
+dist/
+
+# 환경설정 파일 (민감 정보가 포함될 수 있음)
+.env
+.env.*.local
+
+# 로그 파일
+*.log
+logs/
+
+# TypeScript 빌드 캐시
+*.tsbuildinfo
+
+# 에디터 및 IDE 설정 파일
+.vscode/
+.idea/
+
+# 운영체제 관련 파일
+.DS_Store
+Thumbs.db
