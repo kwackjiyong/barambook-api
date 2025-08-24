@@ -7,6 +7,7 @@ import { SkillModule } from './guide/skill/skill.module';
 import { ItemModule } from './guide/item/item.module';
 import { RenderModule } from './render/render.module';
 import { MapModule } from './map/map.module';
+import { RendererModule } from './renderer/renderer.module';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -29,6 +30,7 @@ dotenv.config();
     ItemModule,
     RenderModule,
     MapModule,
+    RendererModule,
   ],
   controllers: [AppController],
   providers: [AppService],

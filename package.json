@@ -5,6 +5,7 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "main": "dist/index.js",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -28,7 +29,10 @@
     "dotenv": "^16.4.7",
     "mongoose": "^8.9.6",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "pngjs": "^7.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
