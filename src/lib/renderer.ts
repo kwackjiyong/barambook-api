@@ -134,7 +134,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
     }
 
     // 양손무기 CASE: 방패 처리
-    if ([38, 32, 41, 49, 45].includes(num)) {
+    if ([38, 32, 41, 49, 45].includes(num) && params.shield >= 0) {
       const idx = rowShld._u3 + (num - 32);
       bitmaps.push(
         decodeEpfItem(EPF.shield.items[idx], palShld, params.shieldc | 0),
