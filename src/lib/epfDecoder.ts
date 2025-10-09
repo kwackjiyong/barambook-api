@@ -33,9 +33,17 @@ export function decodeEpfItem(
         for (let k = 0; k < len && col + k < w; k++) {
           const pi = row * w + (col + k);
           const idx = pix[pi];
-          const vc5 = (vc | 0) & 0x1f; // vc 0..31로 마스킹 (8칸 * 32 = 256)
+          // const vc5 = (vc | 0) & 0x1f; // vc 0..31로 마스킹 (8칸 * 32 = 256)
           let ci = idx;
-          if (ci >= 48) ci = (ci + (vc5 << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
+          // 염색 가능 부위는 48 인덱스 부터 시작
+          if (ci >= 48) {
+            // 커스텀 추가 색상
+            if (vc >= 255) {
+              ci = (ci + ((vc - 255) << 3)) & 0xff;
+            } else {
+              ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
+            }
+          }
           const c = palette[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
           rgba[off] = c.r;
