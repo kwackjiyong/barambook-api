@@ -32,7 +32,9 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
 
   const palHead = PAL.head[rowHead._u2] ?? PAL.head[0];
   const palBody =
-    params.bodyc >= 255 ? PAL.body[12] : (PAL.body[rowBody._u2] ?? PAL.body[0]);
+    params.bodyc >= 255
+      ? PAL.body[11 + params.bodyc / 255]
+      : (PAL.body[rowBody._u2] ?? PAL.body[0]);
   const palShld = PAL.shield[rowShld._u2] ?? PAL.shield[0];
 
   const bitmaps = [] as ReturnType<typeof decodeEpfItem>[];
