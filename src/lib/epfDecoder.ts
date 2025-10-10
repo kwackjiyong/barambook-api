@@ -38,9 +38,7 @@ export function decodeEpfItem(
           // 염색 가능 부위는 48 인덱스 부터 시작
           if (ci >= 48) {
             // 커스텀 추가 색상
-            if (vc >= 255) {
-              ci = (ci + ((vc - 255) << 3)) & 0xff;
-            } else {
+            if (vc < 255) {
               ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
             }
           }
