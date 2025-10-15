@@ -28,6 +28,7 @@ export const EPF = {
 export const PAL = {
   head: loadJSON<PaletteSet>(assetPath('pal', 'head_pal.json')),
   body: loadJSON<PaletteSet>(assetPath('pal', 'body_pal.json')),
+  weapon: loadJSON<PaletteSet>(assetPath('pal', 'weapon_pal.json')), // 무기 염색용
   sword: loadJSON<PaletteSet>(assetPath('pal', 'sword_pal.json')),
   spear: loadJSON<PaletteSet>(assetPath('pal', 'spear_pal.json')),
   shield: loadJSON<PaletteSet>(assetPath('pal', 'shield_pal.json')),

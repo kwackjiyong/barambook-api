@@ -1,7 +1,7 @@
 import { PNG } from 'pngjs';
 import { Buffer } from 'node:buffer';
 import { EPF, PAL, TBL } from './assets';
-import { decodeEpfItem } from './epfDecoder';
+import { decodeEpfItem, decodeWeaponEpfItem } from './epfDecoder';
 import { RenderParams } from './types';
 
 type Part4 = 'head' | 'body' | 'weapon' | 'shield';
@@ -91,28 +91,51 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         const palSword = PAL.sword[rowSword._u2] ?? PAL.sword[0];
         if (num >= 12 && num <= 31) {
           const idx = rowSword._u3 + (num - 12);
+          // decodeEpfItem(EPF.sword.items[idx], palSword, params.weaponc | 0),
           bitmaps.push(
-            decodeEpfItem(EPF.sword.items[idx], palSword, params.weaponc | 0),
+            decodeWeaponEpfItem(
+              EPF.sword.items[idx],
+              palSword,
+              PAL.weapon[params.weaponc / 255 - 1],
+              'sword',
+              params.weaponc | 0,
+            ),
           );
         }
       } else if (w >= 10000 && w < 20000) {
         const w2 = w - 10000;
         const rowSpear = TBL.spear[w2] ?? { _u1: 0, _u2: 0, _u3: 0 };
+        // const palSpear = PAL.spear[rowSpear._u2] ?? PAL.spear[0];
         const palSpear = PAL.spear[rowSpear._u2] ?? PAL.spear[0];
         if (num >= 32 && num <= 51) {
           const idx = rowSpear._u3 + (num - 32);
+          // decodeEpfItem(EPF.spear.items[idx], palSpear, params.weaponc | 0),
           bitmaps.push(
-            decodeEpfItem(EPF.spear.items[idx], palSpear, params.weaponc | 0),
+            decodeWeaponEpfItem(
+              EPF.spear.items[idx],
+              palSpear,
+              PAL.weapon[params.weaponc / 255 - 1],
+              'spear',
+              params.weaponc | 0,
+            ),
           );
         }
       } else if (w >= 30000 && w < 40000) {
         const w2 = w - 30000;
         const rowFan = TBL.fan[w2] ?? { _u1: 0, _u2: 0, _u3: 0 };
+        // const palFan = PAL.fan[rowFan._u2] ?? PAL.fan[0];
         const palFan = PAL.fan[rowFan._u2] ?? PAL.fan[0];
         if (num >= 12 && num <= 31) {
           const idx = rowFan._u3 + (num - 12);
+          // decodeEpfItem(EPF.fan.items[idx], palFan, params.weaponc | 0),
           bitmaps.push(
-            decodeEpfItem(EPF.fan.items[idx], palFan, params.weaponc | 0),
+            decodeWeaponEpfItem(
+              EPF.fan.items[idx],
+              palFan,
+              PAL.weapon[params.weaponc / 255 - 1],
+              'fan',
+              params.weaponc | 0,
+            ),
           );
         }
       }

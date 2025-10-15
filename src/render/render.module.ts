@@ -9,6 +9,8 @@ import { RenderBodyColorService } from './body-color/render.service';
 import { RenderHairColorService } from './hair-color/render.service';
 import { RenderFrameService } from './frame/render.service';
 import { RenderFrameSchema } from './frame/render.schema';
+import { RenderWeaponColorSchema } from './weapon-color/render.schema';
+import { RenderWeaponColorService } from './weapon-color/render.service';
 
 @Module({
   imports: [
@@ -25,6 +27,10 @@ import { RenderFrameSchema } from './frame/render.schema';
       'barambook',
     ),
     MongooseModule.forFeature(
+      [{ name: 'render_weapon_colors', schema: RenderWeaponColorSchema }],
+      'barambook',
+    ),
+    MongooseModule.forFeature(
       [{ name: 'render_frames', schema: RenderFrameSchema }],
       'barambook',
     ),
@@ -33,6 +39,7 @@ import { RenderFrameSchema } from './frame/render.schema';
     RenderService,
     RenderBodyColorService,
     RenderHairColorService,
+    RenderWeaponColorService,
     RenderFrameService,
   ],
   controllers: [RenderController],

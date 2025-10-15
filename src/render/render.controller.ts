@@ -7,6 +7,8 @@ import { RenderHairColorService } from './hair-color/render.service';
 import { RenderBodyColor } from './body-color/render.schema';
 import { RenderHairColor } from './hair-color/render.schema';
 import { RenderFrame } from './frame/render.schema';
+import { RenderWeaponColor } from './weapon-color/render.schema';
+import { RenderWeaponColorService } from './weapon-color/render.service';
 
 @Controller('render')
 export class RenderController {
@@ -15,6 +17,7 @@ export class RenderController {
     private readonly frameService: RenderFrameService,
     private readonly bodyColorService: RenderBodyColorService,
     private readonly hairColorService: RenderHairColorService,
+    private readonly weaponColorService: RenderWeaponColorService,
   ) {}
 
   @Get()
@@ -30,6 +33,10 @@ export class RenderController {
   @Get('hair-colors')
   findHairColors(): Promise<RenderHairColor[]> {
     return this.hairColorService.findRenderHairColors();
+  }
+  @Get('weapon-colors')
+  findWeaponColors(): Promise<RenderWeaponColor[]> {
+    return this.weaponColorService.findRenderWeaponColors();
   }
 
   @Get('frames')
