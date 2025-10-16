@@ -101,12 +101,18 @@ export function decodeWeaponEpfItem(
           if (vc >= 255) {
             if (type === 'sword') {
               if (
-                (idx > 46 && idx < 49) ||
-                idx < 17 ||
-                [143, 32, 35, 36].includes(idx) ||
-                [20, 22, 25, 27].includes(idx) ||
-                [44, 43, 42, 40, 81, 84, 85].includes(idx) || //협가검
-                (idx > 111 && idx < 118) // 진선역봉
+                idx < 22 ||
+                [143, 32, 35, 36, 47].includes(idx) ||
+                // [20, 22, 25, 27].includes(idx) || // 이가닌자검에서 염색되어야 함
+                [81, 82, 83, 84, 85].includes(idx) || //협가검
+                [48, 49, 50, 51, 52, 53, 54, 55, 58, 60, 61, 62, 63].includes(
+                  idx,
+                ) || //카네이션 (적염곤봉 59, 57)
+                [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(idx) || //이가닌자의검
+                [18, 20, 21].includes(idx) || // 적호박별검
+                [200, 201, 202, 203, 204, 205, 206, 207].includes(idx) || // 심판의낫
+                [89, 90, 91, 92, 93, 94, 95].includes(idx) // 현자금봉
+                // (idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
               ) {
                 realPalette = palette;
               } else {
