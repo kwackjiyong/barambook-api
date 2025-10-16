@@ -98,7 +98,7 @@ export function decodeWeaponEpfItem(
 
           let realPalette = palette;
           // 염색 가능 부위는 48 인덱스 부터 시작
-          if (vc !== 0) {
+          if (vc >= 255) {
             if (type === 'sword') {
               if (
                 (idx > 46 && idx < 49) ||
