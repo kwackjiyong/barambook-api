@@ -86,6 +86,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       );
     } else if (part === 'weapon') {
       const w = params.weapon | 0;
+      const palleteNum = params.weaponc / 255 - 1;
       if (w >= 0 && w < 10000) {
         const rowSword = TBL.sword[w] ?? { _u1: 0, _u2: 0, _u3: 0 };
         const palSword = PAL.sword[rowSword._u2] ?? PAL.sword[0];
@@ -96,7 +97,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
             decodeWeaponEpfItem(
               EPF.sword.items[idx],
               palSword,
-              PAL.weapon[params.weaponc / 255 - 1],
+              PAL.weapon[palleteNum],
+              rowSword._u2,
               'sword',
               params.weaponc | 0,
             ),
@@ -114,7 +116,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
             decodeWeaponEpfItem(
               EPF.spear.items[idx],
               palSpear,
-              PAL.weapon[params.weaponc / 255 - 1],
+              PAL.weapon[palleteNum],
+              rowSpear._u2,
               'spear',
               params.weaponc | 0,
             ),
@@ -132,7 +135,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
             decodeWeaponEpfItem(
               EPF.fan.items[idx],
               palFan,
-              PAL.weapon[params.weaponc / 255 - 1],
+              PAL.weapon[palleteNum],
+              rowFan._u2,
               'fan',
               params.weaponc | 0,
             ),

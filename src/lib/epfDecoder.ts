@@ -62,6 +62,7 @@ export function decodeWeaponEpfItem(
   item: EpfItem,
   palette: PaletteVariant,
   paletteCash: PaletteVariant,
+  palleteNum: number,
   type: string,
   vc: number = 0,
   alpha: number = 255,
@@ -105,14 +106,15 @@ export function decodeWeaponEpfItem(
                 [143, 32, 35, 36, 47].includes(idx) ||
                 // [20, 22, 25, 27].includes(idx) || // 이가닌자검에서 염색되어야 함
                 [81, 82, 83, 84, 85].includes(idx) || //협가검
-                [48, 49, 50, 51, 52, 53, 54, 55, 58, 60, 61, 62, 63].includes(
-                  idx,
-                ) || //카네이션 (적염곤봉 59, 57)
+                (palleteNum === 14 && idx > 47 && idx < 64) || //카네이션
+                (palleteNum === 14 && idx === 130) || //카네이션
+                // (적염곤봉 59, 57)
                 [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(idx) || //이가닌자의검
                 [18, 20, 21].includes(idx) || // 적호박별검
-                [200, 201, 202, 203, 204, 205, 206, 207].includes(idx) || // 심판의낫
-                [89, 90, 91, 92, 93, 94, 95].includes(idx) // 현자금봉
-                // (idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
+                [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(idx) || // 심판의낫
+                (palleteNum === 16 &&
+                  [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
+                (palleteNum === 16 && idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
               ) {
                 realPalette = palette;
               } else {
@@ -120,9 +122,11 @@ export function decodeWeaponEpfItem(
               }
             } else if (type === 'fan') {
               if (
-                (![117, 116, 115, 114].includes(idx) && idx > 55) ||
+                (![117, 116, 115, 114, 106, 107, 108].includes(idx) &&
+                  idx > 55) || // 대모홍 107 108
                 idx < 17 ||
-                [143, 32, 35, 36].includes(idx)
+                [143, 32, 35, 36].includes(idx) ||
+                [20, 22].includes(idx) // 대모홍접선 p2
               ) {
                 realPalette = palette;
               } else {
