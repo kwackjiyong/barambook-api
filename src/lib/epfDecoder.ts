@@ -103,15 +103,26 @@ export function decodeWeaponEpfItem(
             if (type === 'sword') {
               if (
                 idx < 22 ||
-                [143, 32, 35, 36, 47].includes(idx) ||
+                [143, 32, 35, 36].includes(idx) ||
+                (palleteNum === 0 && idx === 47) || // 47이 카네이션에서... 47은 철단도
+                // p 0 - 81 염색
                 // [20, 22, 25, 27].includes(idx) || // 이가닌자검에서 염색되어야 함
-                [81, 82, 83, 84, 85].includes(idx) || //협가검
-                (palleteNum === 14 && idx > 47 && idx < 64) || //카네이션
-                (palleteNum === 14 && idx === 130) || //카네이션
+                ([14].includes(palleteNum) &&
+                  [81, 82, 83, 84, 85].includes(idx)) || //협가검
                 // (적염곤봉 59, 57)
-                [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(idx) || //이가닌자의검
+                (palleteNum === 5 &&
+                  [88, 89, 90, 91, 92, 93, 120].includes(idx)) || //태존도 손잡이 5팔레트
+                ([6].includes(palleteNum) &&
+                  [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(
+                    idx,
+                  )) || //이가닌자의검
                 [18, 20, 21].includes(idx) || // 적호박별검
                 [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(idx) || // 심판의낫
+                (palleteNum === 14 && idx > 47 && idx < 64) || //카네이션
+                (palleteNum === 14 && idx === 130) || //카네이션
+                // 6 8 10 15 4개가 겹침;;
+                ([6, 8, 10, 15].includes(palleteNum) &&
+                  [89, 90, 91, 92, 93, 94].includes(idx)) || //검성기검 손자루
                 (palleteNum === 16 &&
                   [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
                 (palleteNum === 16 && idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
