@@ -40,6 +40,7 @@ export interface RenderParams {
   frame: number;
   width?: number;
   height?: number;
+  isAction?: boolean;
 }
 
 export interface DecodedBitmap {

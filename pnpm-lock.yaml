@@ -32,6 +32,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.4.7
+      gif-encoder-2:
+        specifier: ^1.0.5
+        version: 1.0.5
       mongoose:
         specifier: ^8.9.6
         version: 8.9.6
@@ -1993,6 +1996,9 @@ packages:
   get-stream@9.0.1:
     resolution: {integrity: sha512-kVCxPF3vQM/N0B1PmoqVUqgHP+EeVjmZSQn+1oCRPxd2P21P2F19lIgbR3HBosbB1PUhOAoctJnfEn2GbN2eZA==}
     engines: {node: '>=18'}
+
+  gif-encoder-2@1.0.5:
+    resolution: {integrity: sha512-fsRAKbZuUoZ7FYGjpFElmflTkKwsn/CzAmL/xDl4558aTAgysIDCUF6AXWO8dmai/ApfZACbPVAM+vPezJXlFg==}
 
   glob-parent@5.1.2:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}
@@ -5631,6 +5637,8 @@ snapshots:
     dependencies:
       '@sec-ant/readable-stream': 0.4.1
       is-stream: 4.0.1
+
+  gif-encoder-2@1.0.5: {}
 
   glob-parent@5.1.2:
     dependencies:
