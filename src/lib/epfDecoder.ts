@@ -64,6 +64,7 @@ export function decodeWeaponEpfItem(
   paletteCash: PaletteVariant,
   palleteNum: number,
   type: string,
+  weaponNum: number = 0,
   vc: number = 0,
   alpha: number = 255,
 ): DecodedBitmap {
@@ -98,13 +99,15 @@ export function decodeWeaponEpfItem(
           let ci = idx;
 
           let realPalette = palette;
-          // 염색 가능 부위는 48 인덱스 부터 시작
           if (vc >= 255) {
             if (type === 'sword') {
               if (
                 idx < 22 ||
                 [143, 32, 35, 36].includes(idx) ||
-                (palleteNum === 0 && idx === 47) || // 47이 카네이션에서... 47은 철단도
+                (palleteNum === 0 && [42, 43, 44, 45, 46, 47].includes(idx)) || // 47 철단도 46 극경
+                (weaponNum === 18 &&
+                  palleteNum === 0 &&
+                  [115, 116, 117, 118, 119].includes(idx)) || // 깹방
                 // p 0 - 81 염색
                 // [20, 22, 25, 27].includes(idx) || // 이가닌자검에서 염색되어야 함
                 ([14].includes(palleteNum) &&
@@ -133,11 +136,16 @@ export function decodeWeaponEpfItem(
               }
             } else if (type === 'fan') {
               if (
-                (![117, 116, 115, 114, 106, 107, 108].includes(idx) &&
+                ([1, 2].includes(palleteNum) &&
+                  ![117, 116, 115, 114, 106, 107, 108].includes(idx) &&
                   idx > 55) || // 대모홍 107 108
+                ([1, 2].includes(palleteNum) && [20, 22].includes(idx)) || // 대모홍접선 p2
                 idx < 17 ||
-                [143, 32, 35, 36].includes(idx) ||
-                [20, 22].includes(idx) // 대모홍접선 p2
+                (palleteNum !== 0 && [143, 32, 35, 36].includes(idx)) || // 모르겠음 143은 흰색
+                (weaponNum === 0 &&
+                  palleteNum === 0 &&
+                  [33, 34, 35, 36, 49, 50, 53].includes(idx)) || // 칠교 노리개 33~ 노랑, 49~ 초록
+                (palleteNum === 0 && [59, 62].includes(idx)) // 인풍 노리개
               ) {
                 realPalette = palette;
               } else {

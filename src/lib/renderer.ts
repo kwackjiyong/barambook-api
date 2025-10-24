@@ -100,6 +100,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               PAL.weapon[palleteNum],
               rowSword._u2,
               'sword',
+              params.weapon,
               params.weaponc | 0,
             ),
           );
@@ -119,6 +120,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               PAL.weapon[palleteNum],
               rowSpear._u2,
               'spear',
+              params.weapon,
               params.weaponc | 0,
             ),
           );
@@ -138,6 +140,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               PAL.weapon[palleteNum],
               rowFan._u2,
               'fan',
+              params.weapon,
               params.weaponc | 0,
             ),
           );
