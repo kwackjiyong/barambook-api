@@ -104,7 +104,7 @@ export function decodeWeaponEpfItem(
             if (type === 'sword') {
               if (
                 idx < 22 ||
-                [143, 32, 35, 36].includes(idx) ||
+                (palleteNum !== 0 && [143, 32, 35, 36].includes(idx)) ||
                 (palleteNum === 0 && [42, 43, 44, 45, 46, 47].includes(idx)) || // 47 철단도 46 극경
                 (weaponNum === 18 &&
                   palleteNum === 0 &&
@@ -128,8 +128,12 @@ export function decodeWeaponEpfItem(
                 ([6, 8, 10, 15].includes(palleteNum) &&
                   [89, 90, 91, 92, 93, 94].includes(idx)) || //검성기검 손자루
                 (palleteNum === 16 &&
+                  weaponNum === 126 &&
                   [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
-                (palleteNum === 16 && idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
+                (palleteNum === 16 &&
+                  weaponNum === 131 &&
+                  idx > 111 &&
+                  idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
               ) {
                 realPalette = palette;
               } else {
