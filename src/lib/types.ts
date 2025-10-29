@@ -34,6 +34,7 @@ export interface RenderParams {
   body: number;
   bodyc: number;
   weapon: number;
+  weaponrc: number;
   weaponc: number;
   weaponAnic?: number;
   shield: number;

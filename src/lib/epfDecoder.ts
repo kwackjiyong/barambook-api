@@ -65,8 +65,9 @@ export function decodeWeaponEpfItem(
   palleteNum: number,
   type: string,
   weaponNum: number = 0,
-  vc: number = 0,
-  avc: number = 0,
+  rc: number = 0, // 고유색
+  vc: number = 0, // 염색
+  avc: number = 0, // 애니메이션 염색
   alpha: number = 255,
 ): DecodedBitmap {
   const w = (item.right - item.left) | 0;
@@ -128,12 +129,9 @@ export function decodeWeaponEpfItem(
                 ([6, 8, 10, 15].includes(palleteNum) &&
                   [89, 90, 91, 92, 93, 94].includes(idx)) || //검성기검 손자루
                 (palleteNum === 16 &&
-                  weaponNum === 126 &&
+                  [126, 131].includes(weaponNum) &&
                   [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
-                (palleteNum === 16 &&
-                  weaponNum === 131 &&
-                  idx > 111 &&
-                  idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
+                (palleteNum === 16 && idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
               ) {
                 realPalette = palette;
               } else {
@@ -176,9 +174,12 @@ export function decodeWeaponEpfItem(
           }
           if (ci >= 48) {
             // 커스텀 추가 색상
-            if (vc < 255) {
-              ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
-            }
+            // if (vc < 255) {
+            //   ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
+            // } else if (rc > 0) {
+            //   ci = (ci + (rc << 3)) & 0xff;
+            // }
+            ci = (ci + (rc << 3)) & 0xff;
           }
           const c = realPalette[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
