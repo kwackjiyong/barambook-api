@@ -25,7 +25,7 @@ function isDecodedPng(
  */
 export function fillTransparentInPngBuffer(
   pngBuffer: Buffer,
-  fill: RGBA = { r: 0, g: 1, b: 1, a: 255 },
+  fill: RGBA = { r: 1, g: 1, b: 1, a: 0 },
   alphaCutoff = 254,
 ): Buffer {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
@@ -39,10 +39,10 @@ export function fillTransparentInPngBuffer(
   for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3];
     if (a <= alphaCutoff) {
-      data[i] = fill.r & 0xff; // R
-      data[i + 1] = fill.g & 0xff; // G
-      data[i + 2] = fill.b & 0xff; // B
-      data[i + 3] = fill.a & 0xff; // A (보통 255)
+      data[i] = fill.r; // R
+      data[i + 1] = fill.g; // G
+      data[i + 2] = fill.b; // B
+      data[i + 3] = fill.a; // A (보통 255)
     }
   }
 

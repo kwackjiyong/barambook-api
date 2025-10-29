@@ -3,7 +3,6 @@
 import GIFEncoder = require('gif-encoder-2');
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
 import { PNG } from 'pngjs';
-// import { fillTransparentInPngBuffer } from './pngEncoder';
 
 type MakeGifOptions = {
   delayMs?: number; // 프레임 간 딜레이 (기본 100ms = 0.1s)
@@ -39,10 +38,6 @@ export function GifService() {
       throw new Error('framesPngBuffers is empty');
     }
 
-    // framesPngBuffers = framesPngBuffers.map((buffer) =>
-    //   fillTransparentInPngBuffer(buffer),
-    // );
-
     // 1) 첫 프레임에서 width/height 추출 (타입가드로 안전하게)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     const firstDecoded = PNG.sync.read(framesPngBuffers[0]) as unknown;
@@ -75,11 +70,9 @@ export function GifService() {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     encoder.setDelay(opts.delayMs ?? 200); // 프레임 간격
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-    encoder.setDispose(opts.dispose ?? 2); // 이전 프레임 처리 방식
+    encoder.setDispose(opts.dispose ?? 2); // 이전 프레임 처리 방식 1 or 2
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     encoder.setQuality(opts.quality ?? 1); // 속도/품질 트레이드오프
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-    encoder.setTransparent(0x000000);
 
     // 3) 스트림으로 결과 받기
     const chunks: Buffer[] = [];
@@ -97,6 +90,8 @@ export function GifService() {
       if (!isDecodedPng(decoded)) {
         throw new Error(`Failed to decode PNG frame at index ${i}`);
       }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      encoder.setTransparent(0x000000);
       // gif-encoder-2는 Uint8Array/Uint8ClampedArray RGBA를 받음
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       encoder.addFrame(new Uint8Array(decoded.data));

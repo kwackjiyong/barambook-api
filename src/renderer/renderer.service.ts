@@ -30,7 +30,7 @@ export class RendererService {
         ]);
         return GifService().makeGifFromPngBuffers(pngBuffers, {
           delayMs: 333,
-          optimized: true,
+          optimized: false,
         });
       } else {
         return await renderToPng(params);

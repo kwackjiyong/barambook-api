@@ -197,7 +197,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         const s = (y * bmp.w + x) * 4,
           d = (dy * width + dx) * 4;
         const a = bmp.rgba[s + 3];
-        if (a === 0) continue;
+        if (a == 0) continue;
         out[d] = bmp.rgba[s];
         out[d + 1] = bmp.rgba[s + 1];
         out[d + 2] = bmp.rgba[s + 2];
