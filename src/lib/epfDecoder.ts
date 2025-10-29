@@ -66,6 +66,7 @@ export function decodeWeaponEpfItem(
   type: string,
   weaponNum: number = 0,
   vc: number = 0,
+  avc: number = 0,
   alpha: number = 255,
 ): DecodedBitmap {
   const w = (item.right - item.left) | 0;
@@ -132,6 +133,8 @@ export function decodeWeaponEpfItem(
               ) {
                 realPalette = palette;
               } else {
+                // 0...15로 매핑
+                ci = (ci + avc) & 0xf;
                 realPalette = paletteCash;
               }
             } else if (type === 'fan') {
@@ -149,6 +152,8 @@ export function decodeWeaponEpfItem(
               ) {
                 realPalette = palette;
               } else {
+                // 0...8로 매핑
+                ci = (ci + avc) & 0xf;
                 realPalette = paletteCash;
               }
             } else if (type === 'spear') {
@@ -159,6 +164,8 @@ export function decodeWeaponEpfItem(
               ) {
                 realPalette = palette;
               } else {
+                // 0...8로 매핑
+                ci = (ci + avc) & 0xf;
                 realPalette = paletteCash;
               }
             }

@@ -102,6 +102,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               'sword',
               params.weapon,
               params.weaponc | 0,
+              params.weaponAnic ?? 0,
             ),
           );
         }
@@ -122,6 +123,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               'spear',
               params.weapon,
               params.weaponc | 0,
+              params.weaponAnic ?? 0,
             ),
           );
         }
@@ -142,6 +144,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
               'fan',
               params.weapon,
               params.weaponc | 0,
+              params.weaponAnic ?? 0,
             ),
           );
         }

@@ -10,6 +10,7 @@ type MakeGifOptions = {
   repeat?: number; // 0: 무한 반복, -1: 반복 없음
   dispose?: number; // 2: 이전 프레임 지우고 그리기
   quality?: number; // 1(최고) ~ 30(빠름) 정도, 기본 10
+  optimized?: boolean; // true면 무채색 계열 깨질 수도
 };
 
 // pngjs가 반환한 객체가 우리가 기대하는 구조인지 안전하게 확인
@@ -66,7 +67,7 @@ export function GifService() {
 
     // 2) GIF 인코더 설정
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
-    const encoder = new GIFEncoder(width, height, 'octree', true); // useOptimized=true
+    const encoder = new GIFEncoder(width, height, 'octree', opts.optimized); // useOptimized=true
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     encoder.start();
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
@@ -78,7 +79,7 @@ export function GifService() {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     encoder.setQuality(opts.quality ?? 1); // 속도/품질 트레이드오프
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-    encoder.setTransparent(0x000101);
+    encoder.setTransparent(0x000000);
 
     // 3) 스트림으로 결과 받기
     const chunks: Buffer[] = [];

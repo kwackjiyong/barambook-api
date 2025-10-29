@@ -28,12 +28,41 @@ export class RendererService {
           renderToPng(params),
           renderToPng({ ...params, frame: params.frame - 1 }),
         ]);
-        return GifService().makeGifFromPngBuffers(pngBuffers, { delayMs: 333 });
+        return GifService().makeGifFromPngBuffers(pngBuffers, {
+          delayMs: 333,
+          optimized: true,
+        });
       } else {
         return await renderToPng(params);
       }
     } else {
-      return await renderToPng(params);
+      if (params.weaponc === 255) {
+        // 은묵인 경우
+        const pngBuffers = await Promise.all([
+          renderToPng({ ...params, weaponAnic: 15 }),
+          renderToPng({ ...params, weaponAnic: 14 }),
+          renderToPng({ ...params, weaponAnic: 13 }),
+          renderToPng({ ...params, weaponAnic: 12 }),
+          renderToPng({ ...params, weaponAnic: 11 }),
+          renderToPng({ ...params, weaponAnic: 10 }),
+          renderToPng({ ...params, weaponAnic: 9 }),
+          renderToPng({ ...params, weaponAnic: 8 }),
+          renderToPng({ ...params, weaponAnic: 7 }),
+          renderToPng({ ...params, weaponAnic: 6 }),
+          renderToPng({ ...params, weaponAnic: 5 }),
+          renderToPng({ ...params, weaponAnic: 4 }),
+          renderToPng({ ...params, weaponAnic: 3 }),
+          renderToPng({ ...params, weaponAnic: 2 }),
+          renderToPng({ ...params, weaponAnic: 1 }),
+          renderToPng({ ...params, weaponAnic: 0 }),
+        ]);
+        return GifService().makeGifFromPngBuffers(pngBuffers, {
+          delayMs: 500,
+          optimized: false,
+        });
+      } else {
+        return await renderToPng(params);
+      }
     }
   }
 }
