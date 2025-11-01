@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { renderToPng } from '../lib/renderer';
 import { RenderParams } from '../lib/types';
 import { GifService } from 'src/lib/gifEncoder';
+import { makeAPNGBase64 } from 'src/lib/apngEncoder';
 
 @Injectable()
 export class RendererService {
@@ -37,29 +38,19 @@ export class RendererService {
       }
     } else {
       if ([255, 510, 765].includes(params.weaponc)) {
-        // 은묵인 경우
-        const pngBuffers = await Promise.all([
-          renderToPng({ ...params, weaponAnic: 15 }),
-          renderToPng({ ...params, weaponAnic: 14 }),
-          renderToPng({ ...params, weaponAnic: 13 }),
-          renderToPng({ ...params, weaponAnic: 12 }),
-          renderToPng({ ...params, weaponAnic: 11 }),
-          renderToPng({ ...params, weaponAnic: 10 }),
-          renderToPng({ ...params, weaponAnic: 9 }),
-          renderToPng({ ...params, weaponAnic: 8 }),
-          renderToPng({ ...params, weaponAnic: 7 }),
-          renderToPng({ ...params, weaponAnic: 6 }),
-          renderToPng({ ...params, weaponAnic: 5 }),
-          renderToPng({ ...params, weaponAnic: 4 }),
-          renderToPng({ ...params, weaponAnic: 3 }),
-          renderToPng({ ...params, weaponAnic: 2 }),
-          renderToPng({ ...params, weaponAnic: 1 }),
-          renderToPng({ ...params, weaponAnic: 0 }),
-        ]);
-        return GifService().makeGifFromPngBuffers(pngBuffers, {
-          delayMs: 500,
-          optimized: false,
-        });
+        // 애니메이션 계열인 경우
+        const pngBuffers = await Promise.all(
+          // 32 프레임
+          Array.from({ length: 32 }, (_, i) => i)
+            .reverse()
+            .map((x: number) => renderToPng({ ...params, weaponAnic: x })),
+        );
+        return makeAPNGBase64(
+          pngBuffers.map((b) => {
+            return { png: b, delayNum: 5 };
+          }),
+          { loopCount: 0 },
+        );
       } else {
         return await renderToPng(params);
       }

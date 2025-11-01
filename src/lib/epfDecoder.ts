@@ -58,6 +58,14 @@ export function decodeEpfItem(
   return { w, h, left: item.left | 0, top: item.top | 0, rgba };
 }
 
+function map255toTri8(x: number) {
+  const t = x % 15; // 0..15
+  return t < 8 ? t : 15 - t; // 0..7..0
+}
+function map255toTri15(x: number) {
+  const t = x % 31; // 0..15
+  return t < 16 ? t : 31 - t; // 0..15..0
+}
 export function decodeWeaponEpfItem(
   item: EpfItem,
   palette: PaletteVariant,
@@ -136,7 +144,7 @@ export function decodeWeaponEpfItem(
                 realPalette = palette;
               } else {
                 // 0...15로 매핑
-                ci = (ci + avc) & 0xf;
+                ci = map255toTri15(map255toTri8(ci) + avc);
                 realPalette = paletteCash;
               }
             } else if (type === 'fan') {
@@ -154,8 +162,9 @@ export function decodeWeaponEpfItem(
               ) {
                 realPalette = palette;
               } else {
-                // 0...8로 매핑
-                ci = (ci + avc) & 0xf;
+                // 0...15로 매핑
+                // ci = (ci + avc) & 0xf;
+                ci = map255toTri15(map255toTri8(ci) + avc);
                 realPalette = paletteCash;
               }
             } else if (type === 'spear') {
@@ -166,8 +175,9 @@ export function decodeWeaponEpfItem(
               ) {
                 realPalette = palette;
               } else {
-                // 0...8로 매핑
-                ci = (ci + avc) & 0xf;
+                // 0...15로 매핑
+                // ci = (ci + avc) & 0xf;
+                ci = map255toTri15(map255toTri8(ci) + avc);
                 realPalette = paletteCash;
               }
             }
