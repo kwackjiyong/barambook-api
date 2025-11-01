@@ -36,7 +36,7 @@ export class RendererService {
         return await renderToPng(params);
       }
     } else {
-      if (params.weaponc === 255) {
+      if ([255, 510, 765].includes(params.weaponc)) {
         // 은묵인 경우
         const pngBuffers = await Promise.all([
           renderToPng({ ...params, weaponAnic: 15 }),
