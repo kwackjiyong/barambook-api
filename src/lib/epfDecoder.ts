@@ -150,7 +150,7 @@ export function decodeWeaponEpfItem(
                 if (avc !== -1) {
                   ci = map255toTri15(map255toTri8(ci) + avc);
                 } else {
-                  ci = ci = (ci + vc) & 0xf;
+                  ci = ci & 0x7;
                 }
                 realPalette = paletteCash;
               }
@@ -173,7 +173,7 @@ export function decodeWeaponEpfItem(
                 if (avc !== -1) {
                   ci = map255toTri15(map255toTri8(ci) + avc);
                 } else {
-                  ci = ci = (ci + vc) & 0xf;
+                  ci = ci & 0x7;
                 }
                 realPalette = paletteCash;
               }
@@ -189,20 +189,14 @@ export function decodeWeaponEpfItem(
                 if (avc !== -1) {
                   ci = map255toTri15(map255toTri8(ci) + avc);
                 } else {
-                  ci = ci = (ci + vc) & 0xf;
+                  ci = ci & 0x7;
                 }
                 realPalette = paletteCash;
               }
             }
           }
           if (ci >= 48) {
-            // 커스텀 추가 색상
-            // if (vc < 255) {
-            //   ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
-            // } else if (rc > 0) {
-            //   ci = (ci + (rc << 3)) & 0xff;
-            // }
-            ci = (ci + (rc << 3)) & 0xff;
+            ci = (ci + (rc << 3)) & 0xff; // 255로 래핑
           }
           const c = realPalette[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
