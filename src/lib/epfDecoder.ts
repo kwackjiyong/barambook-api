@@ -115,7 +115,9 @@ export function decodeWeaponEpfItem(
                 idx < 22 ||
                 (![0, 6].includes(palleteNum) && // 6 횃불 - 32
                   [143, 32, 35, 36].includes(idx)) ||
-                (palleteNum === 0 && [42, 43, 44, 45, 46, 47].includes(idx)) || // 47 철단도 46 극경
+                (palleteNum === 0 &&
+                  weaponNum !== 62 && // 주작의검이 아닌 경우 62
+                  [42, 43, 44, 45, 46, 47].includes(idx)) || // 47 철단도 46 극경
                 (weaponNum === 18 &&
                   palleteNum === 0 &&
                   [115, 116, 117, 118, 119].includes(idx)) || // 깹방
@@ -133,7 +135,10 @@ export function decodeWeaponEpfItem(
                 ([6].includes(palleteNum) && // 횃불 151,
                   [145, 146, 147, 148, 149, 150, 151].includes(idx)) ||
                 [18, 20, 21].includes(idx) || // 적호박별검
-                [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(idx) || // 심판의낫
+                (palleteNum === 11 &&
+                  [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(
+                    idx,
+                  )) || // 심판의낫
                 (palleteNum === 14 && idx > 47 && idx < 64) || //카네이션
                 (palleteNum === 14 && idx === 130) || //카네이션
                 // 6 8 10 15 4개가 겹침;;
@@ -142,7 +147,14 @@ export function decodeWeaponEpfItem(
                 (palleteNum === 16 &&
                   [126, 131].includes(weaponNum) &&
                   [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
-                (palleteNum === 16 && idx > 111 && idx < 120) // 진선역봉 16팔레트에서만 적용되어야할 듯
+                (palleteNum === 16 &&
+                  [131].includes(weaponNum) &&
+                  idx > 111 &&
+                  idx < 120) || // 진선역봉 16팔레트에서만 적용되어야할 듯
+                (palleteNum === 16 &&
+                  [124, 125].includes(weaponNum) &&
+                  idx > 87 &&
+                  idx < 97) // 건곤권 삼첨도
               ) {
                 realPalette = palette;
               } else {
