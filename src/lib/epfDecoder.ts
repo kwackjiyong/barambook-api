@@ -148,7 +148,7 @@ export function decodeWeaponEpfItem(
                   [126, 131].includes(weaponNum) &&
                   [89, 90, 91, 92, 93, 94, 95].includes(idx)) || // 현자금봉
                 (palleteNum === 16 &&
-                  [131].includes(weaponNum) &&
+                  [124, 129, 131].includes(weaponNum) &&
                   idx > 111 &&
                   idx < 120) || // 진선역봉 16팔레트에서만 적용되어야할 듯
                 (palleteNum === 16 &&
