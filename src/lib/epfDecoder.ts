@@ -191,9 +191,9 @@ export function decodeWeaponEpfItem(
               }
             } else if (type === 'spear') {
               if (
-                (idx > 135 && idx < 152) ||
+                (palleteNum !== 1 && idx > 135 && idx < 152) ||
                 idx < 17 ||
-                (idx > 31 && idx < 40)
+                (idx > 31 && idx < 40) // 팔레트1 - 영롱비창
               ) {
                 realPalette = palette;
               } else {
