@@ -41,7 +41,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
 
   // Special front shield overlay at frames 35/47/51 -> base + (num-32)
   // 양손무기 CASE: 방패 처리
-  if (params.shield >= 0 && [35, 47, 51].includes(num)) {
+  if (
+    params.shield >= 0 &&
+    [34, 35, 36, 37, 44, 46, 47, 50, 51].includes(num)
+  ) {
     const idx = rowShld._u3 + (num - 32);
     bitmaps.push(
       decodeEpfItem(EPF.shield.items[idx], palShld, params.shieldc | 0),
@@ -173,7 +176,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
     }
 
     // 양손무기 CASE: 방패 처리
-    if ([38, 32, 41, 49, 45].includes(num) && params.shield >= 0) {
+    if (
+      [38, 39, 40, 32, 33, 41, 42, 43, 48, 49, 45].includes(num) &&
+      params.shield >= 0
+    ) {
       const idx = rowShld._u3 + (num - 32);
       bitmaps.push(
         decodeEpfItem(EPF.shield.items[idx], palShld, params.shieldc | 0),
