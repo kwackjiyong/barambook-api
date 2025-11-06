@@ -98,7 +98,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
           // decodeEpfItem(EPF.sword.items[idx], palSword, params.weaponc | 0),
           bitmaps.push(
             decodeWeaponEpfItem(
-              EPF.sword.items[idx],
+              w > 150 ? EPF.swordSP.items[idx] : EPF.sword.items[idx],
               palSword,
               PAL.weapon[palleteNum],
               rowSword._u2,

@@ -18,10 +18,12 @@ export const EPF = {
   head: loadJSON<EpfFile>(assetPath('epf', 'head_epf.json')),
   body: loadJSON<EpfFile>(assetPath('epf', 'body_epf.json')),
   sword: loadJSON<EpfFile>(assetPath('epf', 'sword_epf.json')),
+  swordSP: loadJSON<EpfFile>(assetPath('epf', 'sword_sp_epf.json')),
   spear: loadJSON<EpfFile>(assetPath('epf', 'spear_epf.json')),
   shield: loadJSON<EpfFile>(assetPath('epf', 'shield_epf.json')),
   emotion: loadJSON<EpfFile>(assetPath('epf', 'emotion_epf.json')),
   fan: loadJSON<EpfFile>(assetPath('epf', 'fan_epf.json')),
+  ghost: loadJSON<EpfFile>(assetPath('epf', 'ghost_epf.json')),
 };
 
 // Palette sets

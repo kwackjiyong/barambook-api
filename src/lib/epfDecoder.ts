@@ -112,7 +112,7 @@ export function decodeWeaponEpfItem(
           if (vc >= 255) {
             if (type === 'sword') {
               if (
-                idx < 22 ||
+                (weaponNum !== 151 && idx < 22) ||
                 (![0, 6].includes(palleteNum) && // 6 횃불 - 32
                   [143, 32, 35, 36].includes(idx)) ||
                 (palleteNum === 0 &&
