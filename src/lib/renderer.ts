@@ -1,7 +1,11 @@
 import { PNG } from 'pngjs';
 import { Buffer } from 'node:buffer';
 import { EPF, PAL, TBL } from './assets';
-import { decodeEpfItem, decodeWeaponEpfItem } from './epfDecoder';
+import {
+  decodeBodyEpfItem,
+  decodeEpfItem,
+  decodeWeaponEpfItem,
+} from './epfDecoder';
 import { RenderParams } from './types';
 
 type Part4 = 'head' | 'body' | 'weapon' | 'shield';
@@ -81,9 +85,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         if (num === 123) bodyNum = 99;
       }
       bitmaps.push(
-        decodeEpfItem(
+        decodeBodyEpfItem(
           EPF.body.items[rowBody._u3 + bodyNum],
           palBody,
+          params.body,
           params.bodyc | 0,
         ),
       );

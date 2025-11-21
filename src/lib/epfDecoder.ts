@@ -229,6 +229,7 @@ export function decodeWeaponEpfItem(
 export function decodeBodyEpfItem(
   item: EpfItem,
   palette: PaletteVariant,
+  bodyNum: number = 0,
   vc: number = 0,
   alpha: number = 255,
 ): DecodedBitmap {
@@ -261,8 +262,32 @@ export function decodeBodyEpfItem(
           const idx = pix[pi];
           // const vc5 = (vc | 0) & 0x1f; // vc 0..31로 마스킹 (8칸 * 32 = 256)
           let ci = idx;
-          // 염색 가능 부위는 48 인덱스 부터 시작
-          if (ci >= 48) {
+          if (
+            // 산타복
+            [17].includes(bodyNum) &&
+            ![
+              31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx) ||
+              //불의갑주
+            [126, 127].includes(bodyNum) &&
+            ![
+              37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx) ||
+              //땅의도포
+            [115, 116].includes(bodyNum) &&
+            ![
+              37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx) ||
+              //용왕의용포
+            [70].includes(bodyNum) &&
+            ![
+              81, 82, 81, 80, 37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx)
+          ) {
+            const ti = ci + (vc >= 255 ? 48 : 0);
+            ci = (ti + (vc << 3)) & 0xff;
+            // 염색 가능 부위는 48 인덱스 부터 시작
+          } else if (ci >= 48) {
             // 커스텀 추가 색상
             if (vc < 255) {
               ci = (ci + (vc << 3)) & 0xff; // ← 0..255로 래핑(mod 256)
