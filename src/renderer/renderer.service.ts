@@ -58,6 +58,25 @@ export class RendererService {
             }),
             { loopCount: 0 },
           );
+        } else if ([115, 116, 117, 118].includes(params.frame)) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 32 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return renderToPng({
+                  ...params,
+                  weaponAnic: x,
+                  frame: 118 - (x % 4),
+                });
+              }),
+          );
+          return makeAPNGBase64(
+            pngBuffers.map((b) => {
+              return { png: b, delayNum: 3.3 };
+            }),
+            { loopCount: 0 },
+          );
         }
       }
       const pngBuffers = await Promise.all(
@@ -97,6 +116,24 @@ export class RendererService {
             renderToPng(params),
             renderToPng({ ...params, frame: params.frame - 1 }),
           ]);
+          return makeAPNGBase64(
+            pngBuffers.map((b) => {
+              return { png: b, delayNum: 3.3 };
+            }),
+            { loopCount: 0 },
+          );
+        } else if ([115, 116, 117, 118].includes(params.frame)) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 4 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return renderToPng({
+                  ...params,
+                  frame: 118 - (x % 4),
+                });
+              }),
+          );
           return makeAPNGBase64(
             pngBuffers.map((b) => {
               return { png: b, delayNum: 3.3 };
