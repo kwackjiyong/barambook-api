@@ -145,4 +145,107 @@ export class RendererService {
       return await renderToPng(params);
     }
   }
+  async pngRender(params: RenderParams) {
+    // 애니메이션 계열인 경우
+    if ([255, 510, 765].includes(params.weaponc)) {
+      if (params.isAction) {
+        if (
+          [
+            0, 3, 6, 9, 12, 15, 18, 21, 32, 35, 38, 41, 52, 55, 58, 61, 80, 83,
+            86, 89,
+          ].includes(params.frame)
+        ) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 32 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return x % 2 == 0
+                  ? renderToPng({ ...params, weaponAnic: x })
+                  : renderToPng({
+                      ...params,
+                      weaponAnic: x,
+                      frame: params.frame + (x % 4 === 1 ? 1 : 2),
+                    });
+              }),
+          );
+          return pngBuffers;
+        } else if ([25, 27, 29, 31, 45, 47, 49, 51].includes(params.frame)) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 32 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return x % 2 == 0
+                  ? renderToPng({ ...params, weaponAnic: x })
+                  : renderToPng({
+                      ...params,
+                      weaponAnic: x,
+                      frame: params.frame - 1,
+                    });
+              }),
+          );
+          return pngBuffers;
+        } else if ([115, 116, 117, 118].includes(params.frame)) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 32 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return renderToPng({
+                  ...params,
+                  weaponAnic: x,
+                  frame: 118 - (x % 4),
+                });
+              }),
+          );
+          return pngBuffers;
+        }
+      }
+      const pngBuffers = await Promise.all(
+        // 32 프레임
+        Array.from({ length: 32 }, (_, i) => i)
+          .reverse()
+          .map((x: number) => renderToPng({ ...params, weaponAnic: x })),
+      );
+      return pngBuffers;
+    } else {
+      if (params.isAction) {
+        if (
+          [
+            0, 3, 6, 9, 12, 15, 18, 21, 32, 35, 38, 41, 52, 55, 58, 61, 80, 83,
+            86, 89,
+          ].includes(params.frame)
+        ) {
+          const pngBuffers = await Promise.all([
+            renderToPng(params),
+            renderToPng({ ...params, frame: params.frame + 1 }),
+            renderToPng(params),
+            renderToPng({ ...params, frame: params.frame + 2 }),
+          ]);
+          return pngBuffers;
+        } else if ([25, 27, 29, 31, 45, 47, 49, 51].includes(params.frame)) {
+          const pngBuffers = await Promise.all([
+            renderToPng(params),
+            renderToPng({ ...params, frame: params.frame - 1 }),
+          ]);
+          return pngBuffers;
+        } else if ([115, 116, 117, 118].includes(params.frame)) {
+          const pngBuffers = await Promise.all(
+            // 32 프레임
+            Array.from({ length: 4 }, (_, i) => i)
+              .reverse()
+              .map((x: number) => {
+                return renderToPng({
+                  ...params,
+                  frame: 118 - (x % 4),
+                });
+              }),
+          );
+          return pngBuffers;
+        }
+      }
+      return [await renderToPng(params)];
+    }
+  }
 }
