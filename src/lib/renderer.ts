@@ -140,10 +140,9 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       } else if (w >= 30000 && w < 40000) {
         const w2 = w - 30000;
         const rowFan = TBL.fan[w2] ?? { _u1: 0, _u2: 0, _u3: 0 };
-        // const palFan = PAL.fan[rowFan._u2] ?? PAL.fan[0];
         const palFan = PAL.fan[rowFan._u2] ?? PAL.fan[0];
         if (num >= 12 && num <= 31) {
-          const idx = rowFan._u3 + (num - 12);
+          const idx = rowFan._u3 + (num - 13);
           // decodeEpfItem(EPF.fan.items[idx], palFan, params.weaponc | 0),
           bitmaps.push(
             decodeWeaponEpfItem(
