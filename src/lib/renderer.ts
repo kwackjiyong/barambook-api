@@ -25,7 +25,7 @@ function orderFor(frame: number): Part4[] {
 }
 
 export async function renderToPng(params: RenderParams): Promise<Buffer> {
-  const defaultWH = 90;
+  const defaultWH = 120;
   const width = params.width ?? defaultWH;
   const height = params.height ?? defaultWH;
   const num = params.frame | 0;
