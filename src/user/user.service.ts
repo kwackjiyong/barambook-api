@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import type { BulkWriteResult } from 'mongodb';
@@ -12,6 +12,19 @@ export class UserService {
   ) {}
   findUsers(): Promise<User[]> {
     return this.userModel.find();
+  }
+  async findUserByName(name: string): Promise<User[]> {
+    const user = await this.userModel
+      .findOne({ Name: name })
+      .select({ _id: 0, MSWID: 1, Name: 1 }) // 필요한 것만
+      .lean();
+    if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.' + name);
+    const users = await this.userModel
+      .find({ MSWID: user.MSWID })
+      .sort({ Grade: -1 }) // 필요하면 정렬
+      .limit(4)
+      .lean();
+    return users;
   }
   async upsertUsers(userDatas: Array<User>): Promise<BulkWriteResult> {
     return await this.userModel.bulkWrite(

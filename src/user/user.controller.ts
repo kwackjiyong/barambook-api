@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
-import { Body, Controller, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { UserService } from './user.service';
 import { User } from './user.schema';
@@ -11,10 +11,23 @@ const UPSERT_SECRET =
 export class UserController {
   constructor(private readonly svc: UserService) {}
 
-  // @Get('/')
-  // async getUserData(@Query('instanceId') mswInstatnceId: string) {
-  //   return await this.svc.findUser(mswInstatnceId);
-  // }
+  @Get('/')
+  async getUserData(@Query('name') name: string) {
+    const users = await this.svc.findUserByName(name);
+
+    return users?.map((user) => {
+      return {
+        name: user.Name,
+        clan: user.ClanName,
+        class: user.Class,
+        nation: user.Nation,
+        level: user.Level,
+        grade: user.Grade,
+        hp: user.MaxHP,
+        mp: user.MaxMP,
+      };
+    });
+  }
 
   @Post('/userDatas')
   async userDatas(
