@@ -13,6 +13,15 @@ export class UserService {
   findUsers(): Promise<User[]> {
     return this.userModel.find();
   }
+  async findUserSearchByName(name: string): Promise<User[]> {
+    const keyword = (name ?? '').trim();
+    if (!keyword || keyword.length < 2) return [];
+    // 포함 검색 (대소문자 무시)
+    return this.userModel
+      .find({ Name: { $regex: keyword, $options: 'i' } })
+      .lean()
+      .exec();
+  }
   async findUserByName(name: string): Promise<User[]> {
     const user = await this.userModel
       .findOne({ Name: name })

@@ -13,7 +13,7 @@ export class UserController {
 
   @Get('/')
   async getUserData(@Query('name') name: string) {
-    const users = await this.svc.findUserByName(name);
+    const users = await this.svc.findUserSearchByName(name);
 
     return users?.map((user) => {
       return {
