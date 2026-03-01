@@ -9,6 +9,7 @@ import { RenderModule } from './render/render.module';
 import { MapModule } from './map/map.module';
 import { RendererModule } from './renderer/renderer.module';
 import * as dotenv from 'dotenv';
+import { MemberModule } from './member/member.module';
 import { UserModule } from './user/user.module';
 
 dotenv.config();
@@ -32,6 +33,7 @@ dotenv.config();
     RenderModule,
     MapModule,
     RendererModule,
+    MemberModule,
     UserModule,
   ],
   controllers: [AppController],
