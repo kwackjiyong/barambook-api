@@ -34,7 +34,6 @@ export class MemberController {
 
     return {
       accountId: member.accountId,
-      MSWID: member.MSWID,
       verifiedAt: member.verifiedAt,
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
@@ -75,7 +74,6 @@ export class MemberController {
 
     return {
       accountId: result.accountId,
-      MSWID: result.MSWID,
       representativeCharacterName: result.representativeCharacterName,
       authenticated: result.authenticated,
       lastLoginAt: result.lastLoginAt,

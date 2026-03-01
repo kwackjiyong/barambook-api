@@ -76,7 +76,6 @@ export class MemberService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       id: createdMember.id,
       accountId: createdMember.accountId,
-      MSWID: createdMember.MSWID,
       verified: true,
       createdAt: createdMember.createdAt,
     };
@@ -113,7 +112,6 @@ export class MemberService {
     return {
       sessionToken,
       accountId: member.accountId,
-      MSWID: member.MSWID,
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
       authenticated: true,
