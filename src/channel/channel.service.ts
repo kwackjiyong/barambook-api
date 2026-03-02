@@ -65,6 +65,7 @@ export class ChannelService {
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
 
   private readonly participants = new Map<string, ChannelParticipant>();
+  private readonly socketIdsByAccountId = new Map<string, string>();
   private readonly messages: ChannelChatMessage[] = [];
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
@@ -72,7 +73,12 @@ export class ChannelService {
   addParticipant(member: Member, socketId: string): ChannelParticipant {
     const participant = this.createParticipant(member, socketId);
     this.participants.set(socketId, participant);
+    this.socketIdsByAccountId.set(member.accountId, socketId);
     return participant;
+  }
+
+  findSocketIdByAccountId(accountId: string): string | null {
+    return this.socketIdsByAccountId.get(accountId) ?? null;
   }
 
   removeParticipant(socketId: string): ChannelParticipant | null {
@@ -80,6 +86,9 @@ export class ChannelService {
 
     if (current) {
       this.participants.delete(socketId);
+      if (this.socketIdsByAccountId.get(current.accountId) === socketId) {
+        this.socketIdsByAccountId.delete(current.accountId);
+      }
       this.lastMovedAt.delete(socketId);
       this.lastChattedAt.delete(socketId);
     }

@@ -55,6 +55,23 @@ export class ChannelGateway
       }
 
       const member = await this.memberService.findAuthenticatedMember(sessionToken);
+      const previousSocketId = this.channelService.findSocketIdByAccountId(
+        member.accountId,
+      );
+
+      if (previousSocketId && previousSocketId !== client.id) {
+        const previousSocket = this.server.sockets.sockets.get(previousSocketId);
+
+        if (previousSocket) {
+          previousSocket.emit('channel:error', {
+            message: 'This account was connected from another session.',
+          });
+          previousSocket.disconnect(true);
+        } else {
+          this.channelService.removeParticipant(previousSocketId);
+        }
+      }
+
       const participant = this.channelService.addParticipant(member, client.id);
 
       client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
