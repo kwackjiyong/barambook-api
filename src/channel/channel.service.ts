@@ -3,41 +3,16 @@ import { Member } from '../member/member.schema';
 
 export type ChannelDirection = 'up' | 'down' | 'left' | 'right';
 
-export interface ChannelRenderInput {
+export interface ChannelRenderState {
   head: number;
-  headc: string;
-  body: string;
-  bodyc: string;
-  weapon: string;
-  weaponc: string;
-  shield: string;
-  frame: 'b' | 'r' | 'f' | 'l';
-  type:
-    | 'n'
-    | 'w'
-    | 'p'
-    | 'b'
-    | 'm'
-    | 'g'
-    | 'h'
-    | 'e'
-    | 'e_a'
-    | 'e_b'
-    | 'e_c'
-    | 'e_d'
-    | 'e_e'
-    | 'e_f'
-    | 'e_g'
-    | 'e_h'
-    | 'e_i'
-    | 'e_j'
-    | 'e_k'
-    | 'e_l'
-    | 'e_m'
-    | 'e_n'
-    | 'e_o'
-    | 'e_p';
-  isAction: 'Y' | 'N';
+  headc: number;
+  body: number;
+  bodyc: number;
+  weapon: number;
+  weaponc: number;
+  weaponrc?: number;
+  shield: number;
+  shieldc: number;
 }
 
 export interface ChannelParticipant {
@@ -48,7 +23,7 @@ export interface ChannelParticipant {
   y: number;
   direction: ChannelDirection;
   connectedAt: string;
-  renderInput?: ChannelRenderInput;
+  renderState?: ChannelRenderState;
 }
 
 export interface ChannelChatMessage {
@@ -75,7 +50,7 @@ export class ChannelService {
   private static readonly MAP_WIDTH = 5280;
   private static readonly MAP_HEIGHT = 4800;
   private static readonly MAX_STEP = 24;
-  private static readonly MAX_MESSAGE_LENGTH = 120;
+  private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
   private static readonly MOVE_COOLDOWN_MS = 700;
   private static readonly CHAT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -181,7 +156,7 @@ export class ChannelService {
 
   updateParticipantRender(
     socketId: string,
-    renderInput: ChannelRenderInput,
+    renderState: ChannelRenderState,
   ): ChannelParticipant | null {
     const current = this.participants.get(socketId);
 
@@ -191,7 +166,7 @@ export class ChannelService {
 
     const nextParticipant: ChannelParticipant = {
       ...current,
-      renderInput,
+      renderState,
     };
 
     this.participants.set(socketId, nextParticipant);

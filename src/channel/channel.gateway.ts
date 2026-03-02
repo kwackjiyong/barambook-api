@@ -10,7 +10,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
-import { ChannelRenderInput, ChannelService } from './channel.service';
+import { ChannelRenderState, ChannelService } from './channel.service';
 
 interface MoveMessageBody {
   dx?: number;
@@ -22,7 +22,7 @@ interface ChatMessageBody {
   message?: string;
 }
 
-type RenderSyncBody = Partial<ChannelRenderInput>;
+type RenderSyncBody = Partial<ChannelRenderState>;
 
 @WebSocketGateway({
   namespace: '/channel',
@@ -148,21 +148,17 @@ export class ChannelGateway
 
   private isValidRenderSyncPayload(
     payload: RenderSyncBody,
-  ): payload is ChannelRenderInput {
+  ): payload is ChannelRenderState {
     return (
       typeof payload?.head === 'number' &&
-      typeof payload?.headc === 'string' &&
-      typeof payload?.body === 'string' &&
-      typeof payload?.bodyc === 'string' &&
-      typeof payload?.weapon === 'string' &&
-      typeof payload?.weaponc === 'string' &&
-      typeof payload?.shield === 'string' &&
-      (payload?.frame === 'b' ||
-        payload?.frame === 'r' ||
-        payload?.frame === 'f' ||
-        payload?.frame === 'l') &&
-      typeof payload?.type === 'string' &&
-      (payload?.isAction === 'Y' || payload?.isAction === 'N')
+      typeof payload?.headc === 'number' &&
+      typeof payload?.body === 'number' &&
+      typeof payload?.bodyc === 'number' &&
+      typeof payload?.weapon === 'number' &&
+      typeof payload?.weaponc === 'number' &&
+      (payload?.weaponrc === undefined || typeof payload.weaponrc === 'number') &&
+      typeof payload?.shield === 'number' &&
+      typeof payload?.shieldc === 'number'
     );
   }
 }
