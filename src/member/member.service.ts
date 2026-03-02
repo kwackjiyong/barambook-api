@@ -112,6 +112,7 @@ export class MemberService {
     return {
       sessionToken,
       accountId: member.accountId,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
       authenticated: true,
@@ -174,6 +175,7 @@ export class MemberService {
 
     return {
       accountId: member.accountId,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
       characters: characters.map((character) => ({

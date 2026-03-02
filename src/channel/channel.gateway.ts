@@ -1,0 +1,168 @@
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
+import { Logger } from '@nestjs/common';
+import { Server, Socket } from 'socket.io';
+import { MemberService } from '../member/member.service';
+import { ChannelRenderInput, ChannelService } from './channel.service';
+
+interface MoveMessageBody {
+  dx?: number;
+  dy?: number;
+  direction?: 'up' | 'down' | 'left' | 'right';
+}
+
+interface ChatMessageBody {
+  message?: string;
+}
+
+type RenderSyncBody = Partial<ChannelRenderInput>;
+
+@WebSocketGateway({
+  namespace: '/channel',
+  cors: {
+    origin: true,
+    credentials: true,
+  },
+})
+export class ChannelGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
+  private readonly logger = new Logger(ChannelGateway.name);
+
+  @WebSocketServer()
+  private server!: Server;
+
+  constructor(
+    private readonly memberService: MemberService,
+    private readonly channelService: ChannelService,
+  ) {}
+
+  async handleConnection(client: Socket): Promise<void> {
+    try {
+      const sessionToken = this.extractSessionToken(
+        client.handshake.headers.cookie,
+      );
+
+      if (!sessionToken) {
+        throw new Error('missing session');
+      }
+
+      const member = await this.memberService.findAuthenticatedMember(sessionToken);
+      const participant = this.channelService.addParticipant(member, client.id);
+
+      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
+      client.broadcast.emit('channel:participant-joined', participant);
+    } catch (error) {
+      this.logger.warn(`Rejected channel connection: ${client.id}`);
+      client.emit('channel:error', {
+        message: 'Channel access requires a valid login session.',
+      });
+      client.disconnect(true);
+    }
+  }
+
+  handleDisconnect(client: Socket): void {
+    const removed = this.channelService.removeParticipant(client.id);
+
+    if (removed) {
+      this.server.emit('channel:participant-left', {
+        participantId: removed.id,
+      });
+    }
+  }
+
+  @SubscribeMessage('participant:move')
+  handleMove(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: MoveMessageBody,
+  ): void {
+    const participant = this.channelService.moveParticipant(client.id, payload);
+
+    if (participant) {
+      this.server.emit('channel:participant-moved', participant);
+    }
+  }
+
+  @SubscribeMessage('chat:send')
+  handleChat(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: ChatMessageBody,
+  ): void {
+    const result = this.channelService.addMessage(
+      client.id,
+      payload?.message ?? '',
+    );
+
+    if (result.error) {
+      client.emit('channel:error', {
+        message: result.error,
+      });
+      return;
+    }
+
+    if (result.message) {
+      this.server.emit('channel:chat-message', result.message);
+    }
+  }
+
+  @SubscribeMessage('participant:render-sync')
+  handleRenderSync(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: RenderSyncBody,
+  ): void {
+    if (!this.isValidRenderSyncPayload(payload)) {
+      return;
+    }
+
+    const participant = this.channelService.updateParticipantRender(client.id, payload);
+
+    if (participant) {
+      this.server.emit('channel:participant-updated', participant);
+    }
+  }
+
+  private extractSessionToken(cookieHeader?: string): string | null {
+    if (!cookieHeader) {
+      return null;
+    }
+
+    const cookie = cookieHeader
+      .split(';')
+      .map((value) => value.trim())
+      .find((value) => value.startsWith('barambook_session='));
+
+    if (!cookie) {
+      return null;
+    }
+
+    const [, rawValue = ''] = cookie.split('=');
+    return decodeURIComponent(rawValue);
+  }
+
+  private isValidRenderSyncPayload(
+    payload: RenderSyncBody,
+  ): payload is ChannelRenderInput {
+    return (
+      typeof payload?.head === 'number' &&
+      typeof payload?.headc === 'string' &&
+      typeof payload?.body === 'string' &&
+      typeof payload?.bodyc === 'string' &&
+      typeof payload?.weapon === 'string' &&
+      typeof payload?.weaponc === 'string' &&
+      typeof payload?.shield === 'string' &&
+      (payload?.frame === 'b' ||
+        payload?.frame === 'r' ||
+        payload?.frame === 'f' ||
+        payload?.frame === 'l') &&
+      typeof payload?.type === 'string' &&
+      (payload?.isAction === 'Y' || payload?.isAction === 'N')
+    );
+  }
+}

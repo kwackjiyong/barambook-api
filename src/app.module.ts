@@ -11,6 +11,7 @@ import { RendererModule } from './renderer/renderer.module';
 import * as dotenv from 'dotenv';
 import { MemberModule } from './member/member.module';
 import { UserModule } from './user/user.module';
+import { ChannelModule } from './channel/channel.module';
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ dotenv.config();
     RendererModule,
     MemberModule,
     UserModule,
+    ChannelModule,
   ],
   controllers: [AppController],
   providers: [AppService],

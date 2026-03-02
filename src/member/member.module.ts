@@ -18,5 +18,6 @@ import { MemberService } from './member.service';
   ],
   controllers: [MemberController],
   providers: [MemberService, MemberSessionGuard],
+  exports: [MemberService],
 })
 export class MemberModule {}
