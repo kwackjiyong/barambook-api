@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Member } from '../member/member.schema';
 
+const WALKABLE_TILES = (
+  require('../../../barambook/src/asset/map-data/45000_walkable_xy_noextra.json') as Array<{
+    x: number;
+    y: number;
+  }>
+).map((tile) => `${tile.x}:${tile.y}`);
+
 export type ChannelDirection = 'up' | 'down' | 'left' | 'right';
 
 export interface ChannelRenderState {
@@ -49,11 +56,13 @@ interface MovePayload {
 export class ChannelService {
   private static readonly MAP_WIDTH = 5280;
   private static readonly MAP_HEIGHT = 4800;
+  private static readonly TILE_SIZE = 24;
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
   private static readonly MOVE_COOLDOWN_MS = 700;
   private static readonly CHAT_COOLDOWN_MS = 5 * 60 * 1000;
+  private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
 
   private readonly participants = new Map<string, ChannelParticipant>();
   private readonly messages: ChannelChatMessage[] = [];
@@ -101,11 +110,17 @@ export class ChannelService {
       payload.direction,
       current.direction,
     );
+    const nextX = this.clamp(current.x + dx, 0, ChannelService.MAP_WIDTH);
+    const nextY = this.clamp(current.y + dy, 0, ChannelService.MAP_HEIGHT);
+
+    if (!this.isWalkablePosition(nextX, nextY)) {
+      return null;
+    }
 
     const nextParticipant: ChannelParticipant = {
       ...current,
-      x: this.clamp(current.x + dx, 0, ChannelService.MAP_WIDTH),
-      y: this.clamp(current.y + dy, 0, ChannelService.MAP_HEIGHT),
+      x: nextX,
+      y: nextY,
       direction,
     };
 
@@ -188,8 +203,8 @@ export class ChannelService {
     const index = this.participants.size;
     const row = Math.floor(index / 6);
     const column = index % 6;
-    const baseX = 2520;
-    const baseY = 2280;
+    const baseX = 25 * ChannelService.TILE_SIZE;
+    const baseY = 130 * ChannelService.TILE_SIZE;
 
     return {
       id: socketId,
@@ -232,5 +247,18 @@ export class ChannelService {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  private isWalkablePosition(x: number, y: number): boolean {
+    if (
+      x % ChannelService.TILE_SIZE !== 0 ||
+      y % ChannelService.TILE_SIZE !== 0
+    ) {
+      return false;
+    }
+
+    const tileX = x / ChannelService.TILE_SIZE;
+    const tileY = y / ChannelService.TILE_SIZE;
+    return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
   }
 }
