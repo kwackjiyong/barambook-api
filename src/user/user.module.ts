@@ -1,13 +1,20 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { CharacterVisibilitySchema } from '../member/character-visibility.schema';
+import { UserController } from './user.controller';
 import { UserSchema } from './user.schema';
 import { UserService } from './user.service';
-import { UserController } from './user.controller';
 
 @Module({
   imports: [
     MongooseModule.forFeature(
-      [{ name: 'users', schema: UserSchema }],
+      [
+        { name: 'users', schema: UserSchema },
+        {
+          name: 'character_visibilities',
+          schema: CharacterVisibilitySchema,
+        },
+      ],
       'barambook',
     ),
   ],

@@ -4,8 +4,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Post,
   Patch,
+  Post,
   Req,
   Res,
   UseGuards,
@@ -13,11 +13,12 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { LoginDto } from './dto/login.dto';
-import { Member } from './member.schema';
-import { MemberSessionGuard } from './member-session.guard';
 import { SignUpDto } from './dto/sign-up.dto';
-import { MemberService } from './member.service';
+import { UpdateCharacterVisibilityDto } from './dto/update-character-visibility.dto';
 import { UpdateRepresentativeCharacterDto } from './dto/update-representative-character.dto';
+import { MemberSessionGuard } from './member-session.guard';
+import { Member } from './member.schema';
+import { MemberService } from './member.service';
 
 type AuthenticatedRequest = Request & {
   member?: Member;
@@ -126,6 +127,24 @@ export class MemberController {
   ) {
     const member = req.member as Member;
     return this.memberService.updateRepresentativeCharacter(member, dto);
+  }
+
+  @Patch('/character-visibility')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  async updateCharacterVisibility(
+    @Req() req: AuthenticatedRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: UpdateCharacterVisibilityDto,
+  ) {
+    const member = req.member as Member;
+    return this.memberService.updateCharacterVisibility(member, dto);
   }
 
   @Post('/signup')

@@ -60,8 +60,8 @@ export class ChannelService {
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
-  private static readonly MOVE_COOLDOWN_MS = 700;
-  private static readonly CHAT_COOLDOWN_MS = 5 * 60 * 1000;
+  private static readonly MOVE_COOLDOWN_MS = 500;
+  private static readonly CHAT_COOLDOWN_MS = 10 * 1000;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
 
   private readonly participants = new Map<string, ChannelParticipant>();

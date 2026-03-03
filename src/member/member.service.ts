@@ -10,7 +10,9 @@ import { Model } from 'mongoose';
 import { User } from '../user/user.schema';
 import { LoginDto } from './dto/login.dto';
 import { SignUpDto } from './dto/sign-up.dto';
+import { UpdateCharacterVisibilityDto } from './dto/update-character-visibility.dto';
 import { UpdateRepresentativeCharacterDto } from './dto/update-representative-character.dto';
+import { CharacterVisibility } from './character-visibility.schema';
 import { Member } from './member.schema';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -26,6 +28,8 @@ export class MemberService {
     private readonly memberModel: Model<Member>,
     @InjectModel('users', 'barambook')
     private readonly userModel: Model<User>,
+    @InjectModel('character_visibilities', 'barambook')
+    private readonly characterVisibilityModel: Model<CharacterVisibility>,
   ) {}
 
   async signUp(dto: SignUpDto) {
@@ -61,7 +65,7 @@ export class MemberService {
       .exec();
 
     if (existingMember) {
-      throw new ConflictException('이미 가입된 사용자입니다.');
+      throw new ConflictException('이미 가입한 사용자입니다.');
     }
 
     const createdMember = await this.memberModel.create({
@@ -73,7 +77,6 @@ export class MemberService {
     });
 
     return {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       id: createdMember.id,
       accountId: createdMember.accountId,
       verified: true,
@@ -112,7 +115,6 @@ export class MemberService {
     return {
       sessionToken,
       accountId: member.accountId,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
       authenticated: true,
@@ -156,26 +158,39 @@ export class MemberService {
   }
 
   async getMyCharacters(member: Member) {
-    const characters = await this.userModel
-      .find({ MSWID: member.MSWID })
-      .select({
-        _id: 0,
-        Name: 1,
-        ClanName: 1,
-        Class: 1,
-        Grade: 1,
-        Level: 1,
-        Nation: 1,
-        MaxHP: 1,
-        MaxMP: 1,
-      })
-      .sort({ Grade: -1, Level: -1, Name: 1 })
-      .lean()
-      .exec();
+    const [characters, hiddenCharacters] = await Promise.all([
+      this.userModel
+        .find({ MSWID: member.MSWID })
+        .select({
+          _id: 0,
+          Name: 1,
+          ClanName: 1,
+          Class: 1,
+          Grade: 1,
+          Level: 1,
+          Nation: 1,
+          MaxHP: 1,
+          MaxMP: 1,
+        })
+        .sort({ Grade: -1, Level: -1, Name: 1 })
+        .lean()
+        .exec(),
+      this.characterVisibilityModel
+        .find({
+          MSWID: member.MSWID,
+          isHidden: true,
+        })
+        .select({ _id: 0, Name: 1 })
+        .lean()
+        .exec(),
+    ]);
+
+    const hiddenCharacterNames = new Set(
+      hiddenCharacters.map((character) => character.Name),
+    );
 
     return {
       accountId: member.accountId,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       representativeCharacterName:
         member.representativeCharacterName ?? member.accountId,
       characters: characters.map((character) => ({
@@ -187,6 +202,7 @@ export class MemberService {
         nation: character.Nation,
         maxHP: character.MaxHP,
         maxMP: character.MaxMP,
+        isHidden: hiddenCharacterNames.has(character.Name),
         isRepresentative:
           character.Name ===
           (member.representativeCharacterName ?? member.accountId),
@@ -211,7 +227,7 @@ export class MemberService {
 
     if (!targetCharacter) {
       throw new ForbiddenException(
-        '해당 캐릭터는 현재 계정의 소유 캐릭터가 아닙니다.',
+        '해당 캐릭터는 현재 계정에 속한 캐릭터가 아닙니다.',
       );
     }
 
@@ -229,6 +245,62 @@ export class MemberService {
     return {
       accountId: member.accountId,
       representativeCharacterName: nextRepresentativeName,
+    };
+  }
+
+  async updateCharacterVisibility(
+    member: Member,
+    dto: UpdateCharacterVisibilityDto,
+  ) {
+    const characterName = dto.Name.trim();
+
+    const targetCharacter = await this.userModel
+      .findOne({
+        MSWID: member.MSWID,
+        Name: characterName,
+      })
+      .select({ _id: 1, Name: 1 })
+      .lean()
+      .exec();
+
+    if (!targetCharacter) {
+      throw new ForbiddenException(
+        '해당 캐릭터는 현재 계정에 속한 캐릭터가 아닙니다.',
+      );
+    }
+
+    if (dto.isHidden) {
+      await this.characterVisibilityModel
+        .updateOne(
+          {
+            MSWID: member.MSWID,
+            Name: characterName,
+          },
+          {
+            $set: {
+              MSWID: member.MSWID,
+              Name: characterName,
+              isHidden: true,
+            },
+          },
+          {
+            upsert: true,
+          },
+        )
+        .exec();
+    } else {
+      await this.characterVisibilityModel
+        .deleteOne({
+          MSWID: member.MSWID,
+          Name: characterName,
+        })
+        .exec();
+    }
+
+    return {
+      accountId: member.accountId,
+      name: characterName,
+      isHidden: dto.isHidden,
     };
   }
 

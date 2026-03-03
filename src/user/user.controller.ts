@@ -13,7 +13,7 @@ export class UserController {
 
   @Get('/')
   async getUserData(@Query('name') name: string) {
-    const users = await this.svc.findUserSearchByName(name);
+    const users = await this.svc.findUserByName(name);
 
     return users?.map((user) => {
       return {
@@ -25,6 +25,7 @@ export class UserController {
         grade: user.Grade,
         hp: user.MaxHP,
         mp: user.MaxMP,
+        isHidden: user.isHidden,
       };
     });
   }
