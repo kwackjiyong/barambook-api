@@ -45,16 +45,16 @@ export class ChannelGateway
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
+    const sessionToken = this.extractSessionToken(client.handshake.headers.cookie);
+
+    if (!sessionToken) {
+      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(null));
+      return;
+    }
+
     try {
-      const sessionToken = this.extractSessionToken(
-        client.handshake.headers.cookie,
-      );
-
-      if (!sessionToken) {
-        throw new Error('missing session');
-      }
-
-      const member = await this.memberService.findAuthenticatedMember(sessionToken);
+      const member =
+        await this.memberService.findAuthenticatedMember(sessionToken);
       const previousSocketId = this.channelService.findSocketIdByAccountId(
         member.accountId,
       );
@@ -77,11 +77,8 @@ export class ChannelGateway
       client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
       client.broadcast.emit('channel:participant-joined', participant);
     } catch (error) {
-      this.logger.warn(`Rejected channel connection: ${client.id}`);
-      client.emit('channel:error', {
-        message: 'Channel access requires a valid login session.',
-      });
-      client.disconnect(true);
+      this.logger.warn(`Falling back to guest channel access: ${client.id}`);
+      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(null));
     }
   }
 
