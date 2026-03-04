@@ -8,7 +8,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
 import { ChannelRenderState, ChannelService } from './channel.service';
 
@@ -37,7 +37,7 @@ export class ChannelGateway
   private readonly logger = new Logger(ChannelGateway.name);
 
   @WebSocketServer()
-  private server!: Server;
+  private server!: Namespace;
 
   constructor(
     private readonly memberService: MemberService,
@@ -48,12 +48,7 @@ export class ChannelGateway
     const sessionToken = this.extractSessionToken(client.handshake.headers.cookie);
 
     if (!sessionToken) {
-      const participant = this.channelService.addGuestParticipant(client.id);
-      client.emit(
-        'channel:bootstrap',
-        this.channelService.getBootstrapPayload(client.id),
-      );
-      client.broadcast.emit('channel:participant-joined', participant);
+      this.connectGuestParticipant(client);
       return;
     }
 
@@ -65,7 +60,7 @@ export class ChannelGateway
       );
 
       if (previousSocketId && previousSocketId !== client.id) {
-        const previousSocket = this.server.sockets.sockets.get(previousSocketId);
+        const previousSocket = this.server.sockets.get(previousSocketId);
 
         if (previousSocket) {
           previousSocket.emit('channel:error', {
@@ -83,12 +78,7 @@ export class ChannelGateway
       client.broadcast.emit('channel:participant-joined', participant);
     } catch (error) {
       this.logger.warn(`Falling back to guest channel access: ${client.id}`);
-      const participant = this.channelService.addGuestParticipant(client.id);
-      client.emit(
-        'channel:bootstrap',
-        this.channelService.getBootstrapPayload(client.id),
-      );
-      client.broadcast.emit('channel:participant-joined', participant);
+      this.connectGuestParticipant(client);
     }
   }
 
@@ -168,6 +158,57 @@ export class ChannelGateway
 
     const [, rawValue = ''] = cookie.split('=');
     return decodeURIComponent(rawValue);
+  }
+
+  private connectGuestParticipant(client: Socket): void {
+    const ipAddress = this.extractClientIp(client);
+
+    if (!ipAddress) {
+      client.emit('channel:error', {
+        message: 'Unable to verify guest access for this connection.',
+      });
+      client.disconnect(true);
+      return;
+    }
+
+    const previousGuestSocketId = this.channelService.findGuestSocketIdByIp(
+      ipAddress,
+    );
+
+    if (previousGuestSocketId && previousGuestSocketId !== client.id) {
+      const previousGuestSocket = this.server.sockets.get(previousGuestSocketId);
+
+      if (previousGuestSocket) {
+        client.emit('channel:error', {
+          message: 'Guests cannot connect multiple times from the same IP.',
+        });
+        client.disconnect(true);
+        return;
+      }
+
+      this.channelService.removeParticipant(previousGuestSocketId);
+    }
+
+    const participant = this.channelService.addGuestParticipant(client.id, ipAddress);
+    client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
+    client.broadcast.emit('channel:participant-joined', participant);
+  }
+
+  private extractClientIp(client: Socket): string | null {
+    const forwardedFor = client.handshake.headers['x-forwarded-for'];
+    const firstForwardedIp =
+      typeof forwardedFor === 'string'
+        ? forwardedFor.split(',')[0]
+        : Array.isArray(forwardedFor)
+          ? forwardedFor[0]
+          : null;
+    const rawIp = (firstForwardedIp ?? client.handshake.address ?? '').trim();
+
+    if (!rawIp) {
+      return null;
+    }
+
+    return rawIp.replace(/^::ffff:/, '');
   }
 
   private isValidRenderSyncPayload(

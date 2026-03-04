@@ -78,6 +78,8 @@ export class ChannelService {
 
   private readonly participants = new Map<string, ChannelParticipant>();
   private readonly socketIdsByAccountId = new Map<string, string>();
+  private readonly guestSocketIdsByIp = new Map<string, string>();
+  private readonly guestIpsBySocketId = new Map<string, string>();
   private readonly messages: ChannelChatMessage[] = [];
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
@@ -89,14 +91,20 @@ export class ChannelService {
     return participant;
   }
 
-  addGuestParticipant(socketId: string): ChannelParticipant {
+  addGuestParticipant(socketId: string, ipAddress: string): ChannelParticipant {
     const participant = this.createGuestParticipant(socketId);
     this.participants.set(socketId, participant);
+    this.guestSocketIdsByIp.set(ipAddress, socketId);
+    this.guestIpsBySocketId.set(socketId, ipAddress);
     return participant;
   }
 
   findSocketIdByAccountId(accountId: string): string | null {
     return this.socketIdsByAccountId.get(accountId) ?? null;
+  }
+
+  findGuestSocketIdByIp(ipAddress: string): string | null {
+    return this.guestSocketIdsByIp.get(ipAddress) ?? null;
   }
 
   removeParticipant(socketId: string): ChannelParticipant | null {
@@ -106,6 +114,13 @@ export class ChannelService {
       this.participants.delete(socketId);
       if (this.socketIdsByAccountId.get(current.accountId) === socketId) {
         this.socketIdsByAccountId.delete(current.accountId);
+      }
+      const guestIpAddress = this.guestIpsBySocketId.get(socketId);
+      if (guestIpAddress) {
+        if (this.guestSocketIdsByIp.get(guestIpAddress) === socketId) {
+          this.guestSocketIdsByIp.delete(guestIpAddress);
+        }
+        this.guestIpsBySocketId.delete(socketId);
       }
       this.lastMovedAt.delete(socketId);
       this.lastChattedAt.delete(socketId);
