@@ -26,6 +26,7 @@ export interface ChannelParticipant {
   id: string;
   accountId: string;
   displayName: string;
+  isGuest: boolean;
   x: number;
   y: number;
   direction: ChannelDirection;
@@ -61,8 +62,19 @@ export class ChannelService {
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
   private static readonly MOVE_COOLDOWN_MS = 500;
-  private static readonly CHAT_COOLDOWN_MS = 5 * 1000;
+  private static readonly AUTH_CHAT_COOLDOWN_MS = 1 * 1000;
+  private static readonly GUEST_CHAT_COOLDOWN_MS = 5 * 1000;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
+  private static readonly DEFAULT_GUEST_RENDER_STATE: ChannelRenderState = {
+    head: 0,
+    headc: 32,
+    body: 2,
+    bodyc: 0,
+    weapon: 1,
+    weaponc: 0,
+    shield: 1,
+    shieldc: 0,
+  };
 
   private readonly participants = new Map<string, ChannelParticipant>();
   private readonly socketIdsByAccountId = new Map<string, string>();
@@ -74,6 +86,12 @@ export class ChannelService {
     const participant = this.createParticipant(member, socketId);
     this.participants.set(socketId, participant);
     this.socketIdsByAccountId.set(member.accountId, socketId);
+    return participant;
+  }
+
+  addGuestParticipant(socketId: string): ChannelParticipant {
+    const participant = this.createGuestParticipant(socketId);
+    this.participants.set(socketId, participant);
     return participant;
   }
 
@@ -150,10 +168,15 @@ export class ChannelService {
 
     const now = Date.now();
     const lastChattedAt = this.lastChattedAt.get(socketId) ?? 0;
+    const chatCooldownMs = sender.isGuest
+      ? ChannelService.GUEST_CHAT_COOLDOWN_MS
+      : ChannelService.AUTH_CHAT_COOLDOWN_MS;
 
-    if (now - lastChattedAt < ChannelService.CHAT_COOLDOWN_MS) {
+    if (now - lastChattedAt < chatCooldownMs) {
       return {
-        error: 'Speech bubbles can only be updated once every 5 minutes.',
+        error: sender.isGuest
+          ? '\uac8c\uc2a4\ud2b8\ub294 \ucc44\ud305\uc744 5\ucd08\uc5d0 \ud55c \ubc88\ub9cc \ubcf4\ub0bc \uc218 \uc788\uc2b5\ub2c8\ub2e4.'
+          : '\ub85c\uadf8\uc778 \uc0ac\uc6a9\uc790\ub294 \ucc44\ud305\uc744 1\ucd08\uc5d0 \ud55c \ubc88\ub9cc \ubcf4\ub0bc \uc218 \uc788\uc2b5\ub2c8\ub2e4.',
       };
     }
 
@@ -219,10 +242,31 @@ export class ChannelService {
       id: socketId,
       accountId: member.accountId,
       displayName: member.representativeCharacterName ?? member.accountId,
+      isGuest: false,
       x: this.clamp(baseX + (column - 2) * 72, 0, ChannelService.MAP_WIDTH),
       y: this.clamp(baseY + row * 56, 0, ChannelService.MAP_HEIGHT),
       direction: 'down',
       connectedAt: new Date().toISOString(),
+    };
+  }
+
+  private createGuestParticipant(socketId: string): ChannelParticipant {
+    const index = this.participants.size;
+    const row = Math.floor(index / 6);
+    const column = index % 6;
+    const baseX = 25 * ChannelService.TILE_SIZE;
+    const baseY = 130 * ChannelService.TILE_SIZE;
+
+    return {
+      id: socketId,
+      accountId: `guest:${socketId}`,
+      displayName: '',
+      isGuest: true,
+      x: this.clamp(baseX + (column - 2) * 72, 0, ChannelService.MAP_WIDTH),
+      y: this.clamp(baseY + row * 56, 0, ChannelService.MAP_HEIGHT),
+      direction: 'down',
+      connectedAt: new Date().toISOString(),
+      renderState: ChannelService.DEFAULT_GUEST_RENDER_STATE,
     };
   }
 

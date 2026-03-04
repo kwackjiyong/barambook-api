@@ -48,7 +48,12 @@ export class ChannelGateway
     const sessionToken = this.extractSessionToken(client.handshake.headers.cookie);
 
     if (!sessionToken) {
-      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(null));
+      const participant = this.channelService.addGuestParticipant(client.id);
+      client.emit(
+        'channel:bootstrap',
+        this.channelService.getBootstrapPayload(client.id),
+      );
+      client.broadcast.emit('channel:participant-joined', participant);
       return;
     }
 
@@ -78,7 +83,12 @@ export class ChannelGateway
       client.broadcast.emit('channel:participant-joined', participant);
     } catch (error) {
       this.logger.warn(`Falling back to guest channel access: ${client.id}`);
-      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(null));
+      const participant = this.channelService.addGuestParticipant(client.id);
+      client.emit(
+        'channel:bootstrap',
+        this.channelService.getBootstrapPayload(client.id),
+      );
+      client.broadcast.emit('channel:participant-joined', participant);
     }
   }
 
