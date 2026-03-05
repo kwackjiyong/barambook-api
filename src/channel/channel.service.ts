@@ -61,7 +61,7 @@ export class ChannelService {
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
-  private static readonly MOVE_COOLDOWN_MS = 500;
+  private static readonly MOVE_COOLDOWN_MS = 240;
   private static readonly AUTH_CHAT_COOLDOWN_MS = 1 * 1000;
   private static readonly GUEST_CHAT_COOLDOWN_MS = 5 * 1000;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
@@ -139,24 +139,57 @@ export class ChannelService {
       return null;
     }
 
-    const now = Date.now();
-    const lastMovedAt = this.lastMovedAt.get(socketId) ?? 0;
-
-    if (now - lastMovedAt < ChannelService.MOVE_COOLDOWN_MS) {
-      return null;
-    }
-
     const dx = this.normalizeStep(payload.dx);
     const dy = this.normalizeStep(payload.dy);
     const direction = this.normalizeDirection(
       payload.direction,
       current.direction,
     );
+    const now = Date.now();
+    const lastMovedAt = this.lastMovedAt.get(socketId) ?? 0;
+    const isMoveRequested = dx !== 0 || dy !== 0;
+    const isDirectionChanged = direction !== current.direction;
+
+    if (now - lastMovedAt < ChannelService.MOVE_COOLDOWN_MS) {
+      if (!isDirectionChanged) {
+        return null;
+      }
+
+      const rotatedParticipant: ChannelParticipant = {
+        ...current,
+        direction,
+      };
+      this.participants.set(socketId, rotatedParticipant);
+      return rotatedParticipant;
+    }
+
     const nextX = this.clamp(current.x + dx, 0, ChannelService.MAP_WIDTH);
     const nextY = this.clamp(current.y + dy, 0, ChannelService.MAP_HEIGHT);
 
+    if (!isMoveRequested) {
+      if (!isDirectionChanged) {
+        return null;
+      }
+
+      const rotatedParticipant: ChannelParticipant = {
+        ...current,
+        direction,
+      };
+      this.participants.set(socketId, rotatedParticipant);
+      return rotatedParticipant;
+    }
+
     if (!this.isWalkablePosition(nextX, nextY)) {
-      return null;
+      if (!isDirectionChanged) {
+        return null;
+      }
+
+      const rotatedParticipant: ChannelParticipant = {
+        ...current,
+        direction,
+      };
+      this.participants.set(socketId, rotatedParticipant);
+      return rotatedParticipant;
     }
 
     const nextParticipant: ChannelParticipant = {
