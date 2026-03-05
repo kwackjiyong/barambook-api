@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Member } from '../member/member.schema';
 
 const WALKABLE_TILES = (
-  require('../../../barambook/src/asset/map-data/45000_walkable_xy_noextra.json') as Array<{
+  require('../../../barambook/src/asset/map-data/45000_walkable_xy.json') as Array<{
     x: number;
     y: number;
   }>
