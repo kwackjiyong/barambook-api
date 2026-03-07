@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
+﻿/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { UserService } from './user.service';
@@ -28,6 +28,23 @@ export class UserController {
         isHidden: user.isHidden,
       };
     });
+  }
+
+  @Get('/single')
+  async getSingleUserData(@Query('name') name: string) {
+    const user = await this.svc.findSingleUserByName(name);
+
+    return {
+      name: user.Name,
+      clan: user.ClanName,
+      class: user.Class,
+      nation: user.Nation,
+      level: user.Level,
+      grade: user.Grade,
+      hp: user.MaxHP,
+      mp: user.MaxMP,
+      isHidden: user.isHidden,
+    };
   }
 
   @Post('/userDatas')

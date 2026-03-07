@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { BulkWriteResult } from 'mongodb';
 import { Model } from 'mongoose';
@@ -72,34 +72,36 @@ export class UserService {
       hiddenCharacters.map((character) => character.Name),
     );
 
-    return users.map((character) => {
-      const isHidden = hiddenCharacterNames.has(character.Name);
-      if (!isHidden) {
-        return {
-          Name: character.Name,
-          ClanName: character.ClanName ?? null,
-          Class: character.Class,
-          Nation: character.Nation,
-          Level: character.Level,
-          Grade: character.Grade,
-          MaxHP: character.MaxHP,
-          MaxMP: character.MaxMP,
-          isHidden: false,
-        };
-      }
+    return users.map((character) =>
+      this.toUserSearchResult(
+        character,
+        hiddenCharacterNames.has(character.Name),
+      ),
+    );
+  }
 
-      return {
-        Name: 'Hidden Character',
-        ClanName: null,
-        Class: character.Class,
-        Nation: character.Nation,
-        Level: character.Level,
-        Grade: character.Grade,
-        MaxHP: null,
-        MaxMP: null,
+  async findSingleUserByName(name: string): Promise<UserSearchResult> {
+    const trimmedName = (name ?? '').trim();
+    const character = await this.userModel
+      .findOne({ Name: trimmedName })
+      .lean()
+      .exec();
+
+    if (!character) {
+      throw new NotFoundException(`User not found. ${name}`);
+    }
+
+    const hiddenCharacter = await this.characterVisibilityModel
+      .findOne({
+        MSWID: character.MSWID,
+        Name: character.Name,
         isHidden: true,
-      };
-    });
+      })
+      .select({ _id: 0, Name: 1 })
+      .lean()
+      .exec();
+
+    return this.toUserSearchResult(character, Boolean(hiddenCharacter));
   }
 
   async upsertUsers(userDatas: Array<User>): Promise<BulkWriteResult> {
@@ -112,5 +114,36 @@ export class UserService {
         },
       })),
     );
+  }
+
+  private toUserSearchResult(
+    character: User,
+    isHidden: boolean,
+  ): UserSearchResult {
+    if (!isHidden) {
+      return {
+        Name: character.Name,
+        ClanName: character.ClanName ?? null,
+        Class: character.Class,
+        Nation: character.Nation,
+        Level: character.Level,
+        Grade: character.Grade,
+        MaxHP: character.MaxHP,
+        MaxMP: character.MaxMP,
+        isHidden: false,
+      };
+    }
+
+    return {
+      Name: '숨김 캐릭터',
+      ClanName: null,
+      Class: '-',
+      Nation: '-',
+      Level: 0,
+      Grade: 0,
+      MaxHP: null,
+      MaxMP: null,
+      isHidden: true,
+    };
   }
 }
