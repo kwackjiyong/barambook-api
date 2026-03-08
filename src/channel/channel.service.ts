@@ -20,6 +20,12 @@ export interface ChannelRenderState {
   weaponrc?: number;
   shield: number;
   shieldc: number;
+  emotionKey?: string | null;
+  emotionExpiresAt?: string | null;
+  attackSequence?: number | null;
+  attackExpiresAt?: string | null;
+  skillCode?: number | null;
+  skillExpiresAt?: string | null;
 }
 
 export interface ChannelParticipant {
@@ -378,3 +384,4 @@ export class ChannelService {
     return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
   }
 }
+

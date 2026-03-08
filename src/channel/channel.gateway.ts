@@ -223,7 +223,21 @@ export class ChannelGateway
       typeof payload?.weaponc === 'number' &&
       (payload?.weaponrc === undefined || typeof payload.weaponrc === 'number') &&
       typeof payload?.shield === 'number' &&
-      typeof payload?.shieldc === 'number'
+      typeof payload?.shieldc === 'number' &&
+      this.isNullableString(payload?.emotionKey) &&
+      this.isNullableString(payload?.emotionExpiresAt) &&
+      this.isNullableNumber(payload?.attackSequence) &&
+      this.isNullableString(payload?.attackExpiresAt) &&
+      this.isNullableNumber(payload?.skillCode) &&
+      this.isNullableString(payload?.skillExpiresAt)
     );
+  }
+
+  private isNullableNumber(value: unknown): value is number | null | undefined {
+    return value === undefined || value === null || typeof value === 'number';
+  }
+
+  private isNullableString(value: unknown): value is string | null | undefined {
+    return value === undefined || value === null || typeof value === 'string';
   }
 }
