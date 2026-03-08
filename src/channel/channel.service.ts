@@ -280,41 +280,56 @@ export class ChannelService {
     member: Member,
     socketId: string,
   ): ChannelParticipant {
-    const index = this.participants.size;
-    const row = Math.floor(index / 6);
-    const column = index % 6;
-    const baseX = 25 * ChannelService.TILE_SIZE;
-    const baseY = 130 * ChannelService.TILE_SIZE;
+    const position = this.getSpawnPosition(this.participants.size);
 
     return {
       id: socketId,
       accountId: member.accountId,
       displayName: member.representativeCharacterName ?? member.accountId,
       isGuest: false,
-      x: this.clamp(baseX + (column - 2) * 72, 0, ChannelService.MAP_WIDTH),
-      y: this.clamp(baseY + row * 56, 0, ChannelService.MAP_HEIGHT),
+      x: position.x,
+      y: position.y,
       direction: 'down',
       connectedAt: new Date().toISOString(),
     };
   }
 
   private createGuestParticipant(socketId: string): ChannelParticipant {
-    const index = this.participants.size;
-    const row = Math.floor(index / 6);
-    const column = index % 6;
-    const baseX = 25 * ChannelService.TILE_SIZE;
-    const baseY = 130 * ChannelService.TILE_SIZE;
+    const position = this.getSpawnPosition(this.participants.size);
 
     return {
       id: socketId,
       accountId: `guest:${socketId}`,
       displayName: '',
       isGuest: true,
-      x: this.clamp(baseX + (column - 2) * 72, 0, ChannelService.MAP_WIDTH),
-      y: this.clamp(baseY + row * 56, 0, ChannelService.MAP_HEIGHT),
+      x: position.x,
+      y: position.y,
       direction: 'down',
       connectedAt: new Date().toISOString(),
       renderState: ChannelService.DEFAULT_GUEST_RENDER_STATE,
+    };
+  }
+
+  private getSpawnPosition(index: number) {
+    const columnsPerRow = 6;
+    const row = Math.floor(index / columnsPerRow);
+    const column = index % columnsPerRow;
+    const baseTileX = 25;
+    const baseTileY = 130;
+    const tileOffsetX = (column - 2) * 3;
+    const tileOffsetY = row * 2;
+
+    return {
+      x: this.clamp(
+        (baseTileX + tileOffsetX) * ChannelService.TILE_SIZE,
+        0,
+        ChannelService.MAP_WIDTH,
+      ),
+      y: this.clamp(
+        (baseTileY + tileOffsetY) * ChannelService.TILE_SIZE,
+        0,
+        ChannelService.MAP_HEIGHT,
+      ),
     };
   }
 
