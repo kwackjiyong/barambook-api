@@ -20,6 +20,7 @@ interface MoveMessageBody {
 
 interface ChatMessageBody {
   message?: string;
+  isPinned?: boolean;
 }
 
 type RenderSyncBody = Partial<ChannelRenderState>;
@@ -112,6 +113,7 @@ export class ChannelGateway
     const result = this.channelService.addMessage(
       client.id,
       payload?.message ?? '',
+      payload?.isPinned === true,
     );
 
     if (result.error) {
@@ -123,6 +125,17 @@ export class ChannelGateway
 
     if (result.message) {
       this.server.emit('channel:chat-message', result.message);
+    }
+  }
+
+  @SubscribeMessage('chat:clear-pinned')
+  handleClearPinnedChat(
+    @ConnectedSocket() client: Socket,
+  ): void {
+    const message = this.channelService.clearPinnedMessage(client.id);
+
+    if (message) {
+      this.server.emit('channel:chat-message-updated', message);
     }
   }
 
@@ -241,3 +254,5 @@ export class ChannelGateway
     return value === undefined || value === null || typeof value === 'string';
   }
 }
+
+

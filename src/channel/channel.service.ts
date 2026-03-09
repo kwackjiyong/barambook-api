@@ -46,6 +46,8 @@ export interface ChannelChatMessage {
   senderName: string;
   message: string;
   sentAt: string;
+  expiresAt?: string | null;
+  isPinned?: boolean;
 }
 
 export interface ChannelChatResult {
@@ -70,6 +72,7 @@ export class ChannelService {
   private static readonly MOVE_COOLDOWN_MS = 240;
   private static readonly AUTH_CHAT_COOLDOWN_MS = 1 * 1000;
   private static readonly GUEST_CHAT_COOLDOWN_MS = 5 * 1000;
+  private static readonly CHAT_BUBBLE_LIFETIME_MS = 5 * 1000;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
   private static readonly DEFAULT_GUEST_RENDER_STATE: ChannelRenderState = {
     head: 0,
@@ -210,7 +213,11 @@ export class ChannelService {
     return nextParticipant;
   }
 
-  addMessage(socketId: string, rawMessage: string): ChannelChatResult {
+  addMessage(
+    socketId: string,
+    rawMessage: string,
+    isPinned = false,
+  ): ChannelChatResult {
     const sender = this.participants.get(socketId);
     const message = rawMessage
       .trim()
@@ -239,7 +246,11 @@ export class ChannelService {
       senderId: sender.id,
       senderName: sender.displayName,
       message,
-      sentAt: new Date().toISOString(),
+      sentAt: new Date(now).toISOString(),
+      isPinned,
+      expiresAt: isPinned
+        ? null
+        : new Date(now + ChannelService.CHAT_BUBBLE_LIFETIME_MS).toISOString(),
     };
 
     this.messages.push(nextMessage);
@@ -253,6 +264,29 @@ export class ChannelService {
 
     this.lastChattedAt.set(socketId, now);
     return { message: nextMessage };
+  }
+
+  clearPinnedMessage(socketId: string): ChannelChatMessage | null {
+    const now = Date.now();
+
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+
+      if (message.senderId !== socketId || message.isPinned !== true) {
+        continue;
+      }
+
+      const nextMessage: ChannelChatMessage = {
+        ...message,
+        isPinned: false,
+        expiresAt: new Date(now).toISOString(),
+      };
+
+      this.messages[index] = nextMessage;
+      return nextMessage;
+    }
+
+    return null;
   }
 
   updateParticipantRender(
@@ -384,4 +418,9 @@ export class ChannelService {
     return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
   }
 }
+
+
+
+
+
 
