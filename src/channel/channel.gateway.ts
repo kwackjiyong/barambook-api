@@ -1,4 +1,4 @@
-import {
+﻿import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
@@ -10,7 +10,11 @@ import {
 import { Logger } from '@nestjs/common';
 import { Namespace, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
-import { ChannelRenderState, ChannelService } from './channel.service';
+import {
+  ChannelRenderState,
+  ChannelService,
+  type ChannelMonster,
+} from './channel.service';
 
 interface MoveMessageBody {
   dx?: number;
@@ -21,6 +25,10 @@ interface MoveMessageBody {
 interface ChatMessageBody {
   message?: string;
   isPinned?: boolean;
+}
+
+interface SpawnMonsterBody {
+  name?: string;
 }
 
 type RenderSyncBody = Partial<ChannelRenderState>;
@@ -36,6 +44,7 @@ export class ChannelGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(ChannelGateway.name);
+  private monsterLoopTimer: NodeJS.Timeout | null = null;
 
   @WebSocketServer()
   private server!: Namespace;
@@ -43,7 +52,9 @@ export class ChannelGateway
   constructor(
     private readonly memberService: MemberService,
     private readonly channelService: ChannelService,
-  ) {}
+  ) {
+    this.startMonsterLoop();
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     const sessionToken = this.extractSessionToken(client.handshake.headers.cookie);
@@ -155,6 +166,28 @@ export class ChannelGateway
     }
   }
 
+  @SubscribeMessage('monster:spawn')
+  handleMonsterSpawn(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: SpawnMonsterBody,
+  ): void {
+    if (!this.channelService.canManageMonster(client.id)) {
+      client.emit('channel:error', { message: '몬스터 소환은 바람비전 운영자만 사용할 수 있습니다.' });
+      return;
+    }
+
+    const result = this.channelService.spawnMonster(client.id, payload?.name);
+
+    if (result.error) {
+      client.emit('channel:error', { message: result.error });
+      return;
+    }
+
+    if (result.monster) {
+      this.server.emit('channel:monster-spawned', result.monster);
+    }
+  }
+
   private extractSessionToken(cookieHeader?: string): string | null {
     if (!cookieHeader) {
       return null;
@@ -253,6 +286,33 @@ export class ChannelGateway
   private isNullableString(value: unknown): value is string | null | undefined {
     return value === undefined || value === null || typeof value === 'string';
   }
+
+  private startMonsterLoop() {
+    this.monsterLoopTimer = setInterval(() => {
+      const removedMonsters = this.channelService.removeExpiredMonsters();
+      const autoSpawnedMonster = this.channelService.autoSpawnMonster();
+      const movedMonsters = this.channelService.moveMonsters();
+
+      if (autoSpawnedMonster) {
+        this.server.emit('channel:monster-spawned', autoSpawnedMonster);
+      }
+
+      for (const monster of removedMonsters) {
+        this.emitMonsterRemoved(monster);
+      }
+
+      for (const monster of movedMonsters) {
+        this.server.emit('channel:monster-moved', monster);
+      }
+    }, 1000);
+  }
+
+  private emitMonsterRemoved(monster: ChannelMonster) {
+    this.server.emit('channel:monster-removed', {
+      monsterId: monster.id,
+    });
+  }
 }
+
 
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { Member } from '../member/member.schema';
 
 const WALKABLE_TILES = (
@@ -9,6 +9,18 @@ const WALKABLE_TILES = (
 ).map((tile) => `${tile.x}:${tile.y}`);
 
 export type ChannelDirection = 'up' | 'down' | 'left' | 'right';
+
+export interface ChannelMonster {
+  id: string;
+  name: string;
+  renderId: number;
+  renderColor: number;
+  x: number;
+  y: number;
+  direction: ChannelDirection;
+  spawnedAt: string;
+  expiresAt: string;
+}
 
 export interface ChannelRenderState {
   head: number;
@@ -55,6 +67,11 @@ export interface ChannelChatResult {
   message?: ChannelChatMessage;
 }
 
+export interface ChannelMonsterSpawnResult {
+  error?: string;
+  monster?: ChannelMonster;
+}
+
 interface MovePayload {
   dx?: number;
   dy?: number;
@@ -73,6 +90,10 @@ export class ChannelService {
   private static readonly AUTH_CHAT_COOLDOWN_MS = 1 * 1000;
   private static readonly GUEST_CHAT_COOLDOWN_MS = 5 * 1000;
   private static readonly CHAT_BUBBLE_LIFETIME_MS = 5 * 1000;
+  private static readonly MONSTER_LIFETIME_MS = 5 * 60 * 1000;
+  private static readonly MONSTER_MOVE_INTERVAL_MS = 1200;
+  private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 30 * 1000;
+  private static readonly MAX_MONSTERS = 12;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
   private static readonly DEFAULT_GUEST_RENDER_STATE: ChannelRenderState = {
     head: 0,
@@ -90,8 +111,11 @@ export class ChannelService {
   private readonly guestSocketIdsByIp = new Map<string, string>();
   private readonly guestIpsBySocketId = new Map<string, string>();
   private readonly messages: ChannelChatMessage[] = [];
+  private readonly monsters = new Map<string, ChannelMonster>();
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
+  private lastMonsterMovedAt = 0;
+  private lastMonsterSpawnedAt = 0;
 
   addParticipant(member: Member, socketId: string): ChannelParticipant {
     const participant = this.createParticipant(member, socketId);
@@ -312,8 +336,104 @@ export class ChannelService {
     return {
       currentParticipantId: socketId,
       participants: Array.from(this.participants.values()),
+      monsters: Array.from(this.monsters.values()),
       messages: [...this.messages],
     };
+  }
+
+  spawnMonster(socketId?: string | null, requestedName?: string): ChannelMonsterSpawnResult {
+    this.pruneExpiredMonsters();
+
+    if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
+      return {
+        error: '紐ъ뒪?곕뒗 理쒕? 12留덈━源뚯? ?뚰솚?????덉뒿?덈떎.',
+      };
+    }
+
+    const spawnIndex = this.participants.size + this.monsters.size;
+    const position = this.getSpawnPosition(spawnIndex);
+    const now = Date.now();
+    const preset = this.pickMonsterPreset(now, requestedName);
+    const monster: ChannelMonster = {
+      id: `monster:${now}:${Math.random().toString(36).slice(2, 8)}`,
+      name: preset.name,
+      renderId: preset.renderId,
+      renderColor: preset.renderColor,
+      x: position.x,
+      y: position.y,
+      direction: 'down',
+      spawnedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ChannelService.MONSTER_LIFETIME_MS).toISOString(),
+    };
+
+    this.monsters.set(monster.id, monster);
+    this.lastMonsterSpawnedAt = now;
+    return { monster };
+  }
+
+  removeMonster(monsterId: string): ChannelMonster | null {
+    const monster = this.monsters.get(monsterId) ?? null;
+    if (monster) {
+      this.monsters.delete(monsterId);
+    }
+    return monster;
+  }
+
+  removeExpiredMonsters(now = Date.now()): ChannelMonster[] {
+    const removed: ChannelMonster[] = [];
+
+    for (const monster of this.monsters.values()) {
+      const expiresAt = new Date(monster.expiresAt).getTime();
+      if (expiresAt <= now) {
+        this.monsters.delete(monster.id);
+        removed.push(monster);
+      }
+    }
+
+    return removed;
+  }
+
+
+  autoSpawnMonster(now = Date.now()): ChannelMonster | null {
+    this.pruneExpiredMonsters(now)
+
+    if (
+      this.monsters.size >= ChannelService.MAX_MONSTERS ||
+      now - this.lastMonsterSpawnedAt < ChannelService.MONSTER_AUTO_SPAWN_INTERVAL_MS
+    ) {
+      return null
+    }
+
+    return this.spawnMonster(null).monster ?? null
+  }
+
+  canManageMonster(socketId: string) {
+    const participant = this.participants.get(socketId)
+
+    return participant?.isGuest !== true && participant?.displayName === '바람비전'
+  }
+  moveMonsters(now = Date.now()): ChannelMonster[] {
+    this.pruneExpiredMonsters(now);
+
+    if (
+      this.monsters.size === 0 ||
+      now - this.lastMonsterMovedAt < ChannelService.MONSTER_MOVE_INTERVAL_MS
+    ) {
+      return [];
+    }
+
+    this.lastMonsterMovedAt = now;
+    const moved: ChannelMonster[] = [];
+
+    for (const monster of this.monsters.values()) {
+      const nextMonster = this.getNextMonsterPosition(monster);
+      if (nextMonster) {
+        this.monsters.set(nextMonster.id, nextMonster);
+        moved.push(nextMonster);
+      }
+    }
+
+    return moved;
   }
 
   private createParticipant(
@@ -401,6 +521,78 @@ export class ChannelService {
     return fallback;
   }
 
+  private pruneExpiredMonsters(now = Date.now()) {
+    for (const monster of this.monsters.values()) {
+      const expiresAt = new Date(monster.expiresAt).getTime();
+      if (expiresAt <= now) {
+        this.monsters.delete(monster.id);
+      }
+    }
+  }
+
+
+  private pickMonsterPreset(now: number, requestedName?: string) {
+    const presets = [
+      { name: '토끼', renderId: 0, renderColor: 0 },
+      { name: '다람쥐', renderId: 1, renderColor: 0 },
+      { name: '청개구리', renderId: 14, renderColor: 1 },
+      { name: '쥐', renderId: 17, renderColor: 0 },
+      { name: '두꺼비', renderId: 21, renderColor: 2 },
+      { name: '여우', renderId: 24, renderColor: 1 },
+      { name: '사슴', renderId: 30, renderColor: 2 },
+      { name: '멧돼지', renderId: 31, renderColor: 0 },
+      { name: '산돼지', renderId: 36, renderColor: 1 },
+      { name: '도깨비', renderId: 37, renderColor: 2 },
+      { name: '해골', renderId: 50, renderColor: 0 },
+      { name: '유령', renderId: 59, renderColor: 1 },
+    ]
+    const normalizedName = requestedName?.trim()
+    const matchedPreset = normalizedName
+      ? presets.find((preset) => preset.name === normalizedName) ?? null
+      : null
+
+    if (matchedPreset) {
+      return matchedPreset
+    }
+
+    return presets[now % presets.length] ?? presets[0]
+  }
+  private getNextMonsterPosition(monster: ChannelMonster): ChannelMonster | null {
+    const candidates: Array<{ dx: number; dy: number; direction: ChannelDirection }> = [
+      { dx: 0, dy: -ChannelService.TILE_SIZE, direction: 'up' },
+      { dx: 0, dy: ChannelService.TILE_SIZE, direction: 'down' },
+      { dx: -ChannelService.TILE_SIZE, dy: 0, direction: 'left' },
+      { dx: ChannelService.TILE_SIZE, dy: 0, direction: 'right' },
+    ];
+    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+
+    for (const candidate of shuffled) {
+      const nextX = this.clamp(monster.x + candidate.dx, 0, ChannelService.MAP_WIDTH);
+      const nextY = this.clamp(monster.y + candidate.dy, 0, ChannelService.MAP_HEIGHT);
+      if (!this.isWalkablePosition(nextX, nextY)) {
+        continue;
+      }
+
+      return {
+        ...monster,
+        x: nextX,
+        y: nextY,
+        direction: candidate.direction,
+      };
+    }
+
+    const fallbackDirection =
+      shuffled[Math.floor(Math.random() * shuffled.length)]?.direction ?? monster.direction;
+    if (fallbackDirection === monster.direction) {
+      return null;
+    }
+
+    return {
+      ...monster,
+      direction: fallbackDirection,
+    };
+  }
+
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
   }
@@ -418,6 +610,10 @@ export class ChannelService {
     return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
   }
 }
+
+
+
+
 
 
 
