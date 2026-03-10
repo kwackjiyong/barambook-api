@@ -301,10 +301,10 @@ export class ChannelGateway
         this.emitMonsterRemoved(monster);
       }
 
-      for (const monster of movedMonsters) {
-        this.server.emit('channel:monster-moved', monster);
+      if (movedMonsters.length > 0) {
+        this.server.emit('channel:monsters-moved', movedMonsters);
       }
-    }, 1000);
+    }, 200);
   }
 
   private emitMonsterRemoved(monster: ChannelMonster) {

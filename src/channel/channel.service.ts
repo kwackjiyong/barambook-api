@@ -87,13 +87,16 @@ export class ChannelService {
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
   private static readonly MOVE_COOLDOWN_MS = 240;
-  private static readonly AUTH_CHAT_COOLDOWN_MS = 1 * 1000;
-  private static readonly GUEST_CHAT_COOLDOWN_MS = 5 * 1000;
-  private static readonly CHAT_BUBBLE_LIFETIME_MS = 5 * 1000;
-  private static readonly MONSTER_LIFETIME_MS = 5 * 60 * 1000;
+  private static readonly AUTH_CHAT_COOLDOWN_MS = 200;
+  private static readonly GUEST_CHAT_COOLDOWN_MS = 1000;
+  private static readonly CHAT_BUBBLE_LIFETIME_MS = 6 * 1000;
+  private static readonly MONSTER_LIFETIME_MS = 10 * 1000;
   private static readonly MONSTER_MOVE_INTERVAL_MS = 1200;
-  private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 30 * 1000;
+  private static readonly MONSTER_MOVE_STAGGER_MS = 900;
+  private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 5 * 1000;
   private static readonly MAX_MONSTERS = 12;
+  private static readonly MAX_MONSTER_RENDER_ID = 616;
+  private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
   private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
   private static readonly DEFAULT_GUEST_RENDER_STATE: ChannelRenderState = {
     head: 0,
@@ -114,7 +117,7 @@ export class ChannelService {
   private readonly monsters = new Map<string, ChannelMonster>();
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
-  private lastMonsterMovedAt = 0;
+  private readonly lastMonsterMovedAtById = new Map<string, number>();
   private lastMonsterSpawnedAt = 0;
 
   addParticipant(member: Member, socketId: string): ChannelParticipant {
@@ -341,12 +344,15 @@ export class ChannelService {
     };
   }
 
-  spawnMonster(socketId?: string | null, requestedName?: string): ChannelMonsterSpawnResult {
+  spawnMonster(
+    socketId?: string | null,
+    requestedName?: string,
+  ): ChannelMonsterSpawnResult {
     this.pruneExpiredMonsters();
 
     if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
       return {
-        error: '紐ъ뒪?곕뒗 理쒕? 12留덈━源뚯? ?뚰솚?????덉뒿?덈떎.',
+        error: '최대 12마리만 소환할 수 있습니다.',
       };
     }
 
@@ -363,10 +369,23 @@ export class ChannelService {
       y: position.y,
       direction: 'down',
       spawnedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + ChannelService.MONSTER_LIFETIME_MS).toISOString(),
+      expiresAt: new Date(
+        now + ChannelService.MONSTER_LIFETIME_MS,
+      ).toISOString(),
     };
 
     this.monsters.set(monster.id, monster);
+    this.lastMonsterMovedAtById.set(
+      monster.id,
+      now -
+        this.randomInt(
+          0,
+          Math.min(
+            ChannelService.MONSTER_MOVE_STAGGER_MS,
+            ChannelService.MONSTER_MOVE_INTERVAL_MS - 1,
+          ),
+        ),
+    );
     this.lastMonsterSpawnedAt = now;
     return { monster };
   }
@@ -375,6 +394,7 @@ export class ChannelService {
     const monster = this.monsters.get(monsterId) ?? null;
     if (monster) {
       this.monsters.delete(monsterId);
+      this.lastMonsterMovedAtById.delete(monsterId);
     }
     return monster;
   }
@@ -386,6 +406,7 @@ export class ChannelService {
       const expiresAt = new Date(monster.expiresAt).getTime();
       if (expiresAt <= now) {
         this.monsters.delete(monster.id);
+        this.lastMonsterMovedAtById.delete(monster.id);
         removed.push(monster);
       }
     }
@@ -393,40 +414,46 @@ export class ChannelService {
     return removed;
   }
 
-
   autoSpawnMonster(now = Date.now()): ChannelMonster | null {
-    this.pruneExpiredMonsters(now)
+    this.pruneExpiredMonsters(now);
 
     if (
       this.monsters.size >= ChannelService.MAX_MONSTERS ||
-      now - this.lastMonsterSpawnedAt < ChannelService.MONSTER_AUTO_SPAWN_INTERVAL_MS
+      now - this.lastMonsterSpawnedAt <
+        ChannelService.MONSTER_AUTO_SPAWN_INTERVAL_MS
     ) {
-      return null
+      return null;
     }
 
-    return this.spawnMonster(null).monster ?? null
+    return this.spawnMonster(null).monster ?? null;
   }
 
   canManageMonster(socketId: string) {
-    const participant = this.participants.get(socketId)
+    const participant = this.participants.get(socketId);
 
-    return participant?.isGuest !== true && participant?.displayName === '바람비전'
+    return (
+      participant?.isGuest !== true && participant?.displayName === '바람비전'
+    );
   }
   moveMonsters(now = Date.now()): ChannelMonster[] {
     this.pruneExpiredMonsters(now);
 
-    if (
-      this.monsters.size === 0 ||
-      now - this.lastMonsterMovedAt < ChannelService.MONSTER_MOVE_INTERVAL_MS
-    ) {
+    if (this.monsters.size === 0) {
       return [];
     }
 
-    this.lastMonsterMovedAt = now;
     const moved: ChannelMonster[] = [];
 
     for (const monster of this.monsters.values()) {
+      const lastMovedAt = this.lastMonsterMovedAtById.get(monster.id) ?? 0;
+
+      if (now - lastMovedAt < ChannelService.MONSTER_MOVE_INTERVAL_MS) {
+        continue;
+      }
+
       const nextMonster = this.getNextMonsterPosition(monster);
+      this.lastMonsterMovedAtById.set(monster.id, now);
+
       if (nextMonster) {
         this.monsters.set(nextMonster.id, nextMonster);
         moved.push(nextMonster);
@@ -526,39 +553,44 @@ export class ChannelService {
       const expiresAt = new Date(monster.expiresAt).getTime();
       if (expiresAt <= now) {
         this.monsters.delete(monster.id);
+        this.lastMonsterMovedAtById.delete(monster.id);
       }
     }
   }
 
-
-  private pickMonsterPreset(now: number, requestedName?: string) {
-    const presets = [
-      { name: '토끼', renderId: 0, renderColor: 0 },
-      { name: '다람쥐', renderId: 1, renderColor: 0 },
-      { name: '청개구리', renderId: 14, renderColor: 1 },
-      { name: '쥐', renderId: 17, renderColor: 0 },
-      { name: '두꺼비', renderId: 21, renderColor: 2 },
-      { name: '여우', renderId: 24, renderColor: 1 },
-      { name: '사슴', renderId: 30, renderColor: 2 },
-      { name: '멧돼지', renderId: 31, renderColor: 0 },
-      { name: '산돼지', renderId: 36, renderColor: 1 },
-      { name: '도깨비', renderId: 37, renderColor: 2 },
-      { name: '해골', renderId: 50, renderColor: 0 },
-      { name: '유령', renderId: 59, renderColor: 1 },
-    ]
-    const normalizedName = requestedName?.trim()
-    const matchedPreset = normalizedName
-      ? presets.find((preset) => preset.name === normalizedName) ?? null
-      : null
-
-    if (matchedPreset) {
-      return matchedPreset
+  private randomInt(min: number, max: number) {
+    if (max <= min) {
+      return min;
     }
 
-    return presets[now % presets.length] ?? presets[0]
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   }
-  private getNextMonsterPosition(monster: ChannelMonster): ChannelMonster | null {
-    const candidates: Array<{ dx: number; dy: number; direction: ChannelDirection }> = [
+
+  private pickMonsterPreset(now: number, requestedName?: string) {
+    const normalizedName = requestedName?.trim();
+    const randomSeed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    const renderId =
+      (now + randomSeed) % (ChannelService.MAX_MONSTER_RENDER_ID + 1);
+    const renderColor =
+      (now + randomSeed) % ChannelService.MONSTER_RENDER_COLOR_COUNT;
+
+    return {
+      name:
+        normalizedName && normalizedName.length > 0
+          ? normalizedName
+          : `monster:${renderId}`,
+      renderId,
+      renderColor,
+    };
+  }
+  private getNextMonsterPosition(
+    monster: ChannelMonster,
+  ): ChannelMonster | null {
+    const candidates: Array<{
+      dx: number;
+      dy: number;
+      direction: ChannelDirection;
+    }> = [
       { dx: 0, dy: -ChannelService.TILE_SIZE, direction: 'up' },
       { dx: 0, dy: ChannelService.TILE_SIZE, direction: 'down' },
       { dx: -ChannelService.TILE_SIZE, dy: 0, direction: 'left' },
@@ -567,8 +599,16 @@ export class ChannelService {
     const shuffled = [...candidates].sort(() => Math.random() - 0.5);
 
     for (const candidate of shuffled) {
-      const nextX = this.clamp(monster.x + candidate.dx, 0, ChannelService.MAP_WIDTH);
-      const nextY = this.clamp(monster.y + candidate.dy, 0, ChannelService.MAP_HEIGHT);
+      const nextX = this.clamp(
+        monster.x + candidate.dx,
+        0,
+        ChannelService.MAP_WIDTH,
+      );
+      const nextY = this.clamp(
+        monster.y + candidate.dy,
+        0,
+        ChannelService.MAP_HEIGHT,
+      );
       if (!this.isWalkablePosition(nextX, nextY)) {
         continue;
       }
@@ -582,7 +622,8 @@ export class ChannelService {
     }
 
     const fallbackDirection =
-      shuffled[Math.floor(Math.random() * shuffled.length)]?.direction ?? monster.direction;
+      shuffled[Math.floor(Math.random() * shuffled.length)]?.direction ??
+      monster.direction;
     if (fallbackDirection === monster.direction) {
       return null;
     }
@@ -610,13 +651,3 @@ export class ChannelService {
     return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
   }
 }
-
-
-
-
-
-
-
-
-
-
