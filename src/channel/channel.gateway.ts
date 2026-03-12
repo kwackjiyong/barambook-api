@@ -57,7 +57,9 @@ export class ChannelGateway
   }
 
   async handleConnection(client: Socket): Promise<void> {
-    const sessionToken = this.extractSessionToken(client.handshake.headers.cookie);
+    const sessionToken = this.extractSessionToken(
+      client.handshake.headers.cookie,
+    );
 
     if (!sessionToken) {
       this.connectGuestParticipant(client);
@@ -86,8 +88,12 @@ export class ChannelGateway
 
       const participant = this.channelService.addParticipant(member, client.id);
 
-      client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
+      client.emit(
+        'channel:bootstrap',
+        this.channelService.getBootstrapPayload(client.id),
+      );
       client.broadcast.emit('channel:participant-joined', participant);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       this.logger.warn(`Falling back to guest channel access: ${client.id}`);
       this.connectGuestParticipant(client);
@@ -140,9 +146,7 @@ export class ChannelGateway
   }
 
   @SubscribeMessage('chat:clear-pinned')
-  handleClearPinnedChat(
-    @ConnectedSocket() client: Socket,
-  ): void {
+  handleClearPinnedChat(@ConnectedSocket() client: Socket): void {
     const message = this.channelService.clearPinnedMessage(client.id);
 
     if (message) {
@@ -159,7 +163,10 @@ export class ChannelGateway
       return;
     }
 
-    const participant = this.channelService.updateParticipantRender(client.id, payload);
+    const participant = this.channelService.updateParticipantRender(
+      client.id,
+      payload,
+    );
 
     if (participant) {
       this.server.emit('channel:participant-updated', participant);
@@ -172,7 +179,9 @@ export class ChannelGateway
     @MessageBody() payload: SpawnMonsterBody,
   ): void {
     if (!this.channelService.canManageMonster(client.id)) {
-      client.emit('channel:error', { message: '몬스터 소환은 바람비전 운영자만 사용할 수 있습니다.' });
+      client.emit('channel:error', {
+        message: '몬스터 소환은 바람비전 운영자만 사용할 수 있습니다.',
+      });
       return;
     }
 
@@ -217,12 +226,13 @@ export class ChannelGateway
       return;
     }
 
-    const previousGuestSocketId = this.channelService.findGuestSocketIdByIp(
-      ipAddress,
-    );
+    const previousGuestSocketId =
+      this.channelService.findGuestSocketIdByIp(ipAddress);
 
     if (previousGuestSocketId && previousGuestSocketId !== client.id) {
-      const previousGuestSocket = this.server.sockets.get(previousGuestSocketId);
+      const previousGuestSocket = this.server.sockets.get(
+        previousGuestSocketId,
+      );
 
       if (previousGuestSocket) {
         client.emit('channel:error', {
@@ -235,8 +245,14 @@ export class ChannelGateway
       this.channelService.removeParticipant(previousGuestSocketId);
     }
 
-    const participant = this.channelService.addGuestParticipant(client.id, ipAddress);
-    client.emit('channel:bootstrap', this.channelService.getBootstrapPayload(client.id));
+    const participant = this.channelService.addGuestParticipant(
+      client.id,
+      ipAddress,
+    );
+    client.emit(
+      'channel:bootstrap',
+      this.channelService.getBootstrapPayload(client.id),
+    );
     client.broadcast.emit('channel:participant-joined', participant);
   }
 
@@ -267,7 +283,8 @@ export class ChannelGateway
       typeof payload?.bodyc === 'number' &&
       typeof payload?.weapon === 'number' &&
       typeof payload?.weaponc === 'number' &&
-      (payload?.weaponrc === undefined || typeof payload.weaponrc === 'number') &&
+      (payload?.weaponrc === undefined ||
+        typeof payload.weaponrc === 'number') &&
       typeof payload?.shield === 'number' &&
       typeof payload?.shieldc === 'number' &&
       this.isNullableString(payload?.emotionKey) &&
@@ -313,6 +330,3 @@ export class ChannelGateway
     });
   }
 }
-
-
-

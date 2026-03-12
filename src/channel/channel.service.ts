@@ -1,12 +1,10 @@
 ﻿import { Injectable } from '@nestjs/common';
+import { disabledPositions } from '../assets/object/330_disabled_xy';
 import { Member } from '../member/member.schema';
 
-const WALKABLE_TILES = (
-  require('../../../barambook/src/asset/map-data/45000_walkable_xy.json') as Array<{
-    x: number;
-    y: number;
-  }>
-).map((tile) => `${tile.x}:${tile.y}`);
+type DisabledPosition = { x: number; y: number };
+
+const WALK_DISABLED_TILE_SET = buildWalkDisabledTileSet(disabledPositions);
 
 export type ChannelDirection = 'up' | 'down' | 'left' | 'right';
 
@@ -80,9 +78,21 @@ interface MovePayload {
 
 @Injectable()
 export class ChannelService {
-  private static readonly MAP_WIDTH = 5280;
-  private static readonly MAP_HEIGHT = 4800;
+  private static readonly MAP_TILE_WIDTH = 146;
+  private static readonly MAP_TILE_HEIGHT = 156;
   private static readonly TILE_SIZE = 24;
+  private static readonly MAP_WIDTH =
+    ChannelService.MAP_TILE_WIDTH * ChannelService.TILE_SIZE;
+  private static readonly MAP_HEIGHT =
+    ChannelService.MAP_TILE_HEIGHT * ChannelService.TILE_SIZE;
+  private static readonly MAX_TILE_X = ChannelService.MAP_TILE_WIDTH - 1;
+  private static readonly MAX_TILE_Y = ChannelService.MAP_TILE_HEIGHT - 1;
+  private static readonly MAX_POSITION_X =
+    ChannelService.MAX_TILE_X * ChannelService.TILE_SIZE;
+  private static readonly MAX_POSITION_Y =
+    ChannelService.MAX_TILE_Y * ChannelService.TILE_SIZE;
+  private static readonly RESPAWN_CENTER_TILE_X = 74;
+  private static readonly RESPAWN_CENTER_TILE_Y = 137;
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
@@ -94,10 +104,9 @@ export class ChannelService {
   private static readonly MONSTER_MOVE_INTERVAL_MS = 1200;
   private static readonly MONSTER_MOVE_STAGGER_MS = 900;
   private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 5 * 1000;
-  private static readonly MAX_MONSTERS = 12;
+  private static readonly MAX_MONSTERS = 120;
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
-  private static readonly WALKABLE_TILE_SET = new Set<string>(WALKABLE_TILES);
   private static readonly DEFAULT_GUEST_RENDER_STATE: ChannelRenderState = {
     head: 0,
     headc: 32,
@@ -199,8 +208,8 @@ export class ChannelService {
       return rotatedParticipant;
     }
 
-    const nextX = this.clamp(current.x + dx, 0, ChannelService.MAP_WIDTH);
-    const nextY = this.clamp(current.y + dy, 0, ChannelService.MAP_HEIGHT);
+    const nextX = this.clamp(current.x + dx, 0, ChannelService.MAX_POSITION_X);
+    const nextY = this.clamp(current.y + dy, 0, ChannelService.MAX_POSITION_Y);
 
     if (!isMoveRequested) {
       if (!isDirectionChanged) {
@@ -352,12 +361,12 @@ export class ChannelService {
 
     if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
       return {
-        error: '최대 12마리만 소환할 수 있습니다.',
+        error: '嶺뚣끉裕? 12嶺뚮씭??怨살춹???怨쀫꼶???????곕????덈펲.',
       };
     }
 
-    const spawnIndex = this.participants.size + this.monsters.size;
-    const position = this.getSpawnPosition(spawnIndex);
+    const spawnIndex = this.monsters.size;
+    const position = this.getMonsterSpawnPosition(spawnIndex);
     const now = Date.now();
     const preset = this.pickMonsterPreset(now, requestedName);
     const monster: ChannelMonster = {
@@ -498,26 +507,24 @@ export class ChannelService {
   }
 
   private getSpawnPosition(index: number) {
-    const columnsPerRow = 6;
-    const row = Math.floor(index / columnsPerRow);
-    const column = index % columnsPerRow;
-    const baseTileX = 25;
-    const baseTileY = 130;
-    const tileOffsetX = (column - 2) * 3;
-    const tileOffsetY = row * 2;
+    const tile = this.findNearbyWalkableTile(
+      ChannelService.RESPAWN_CENTER_TILE_X,
+      ChannelService.RESPAWN_CENTER_TILE_Y,
+      index,
+    );
 
-    return {
-      x: this.clamp(
-        (baseTileX + tileOffsetX) * ChannelService.TILE_SIZE,
-        0,
-        ChannelService.MAP_WIDTH,
-      ),
-      y: this.clamp(
-        (baseTileY + tileOffsetY) * ChannelService.TILE_SIZE,
-        0,
-        ChannelService.MAP_HEIGHT,
-      ),
-    };
+    return this.toWorldPosition(tile.x, tile.y);
+  }
+
+  private getMonsterSpawnPosition(index: number) {
+    const tile = this.findNearbyWalkableTile(
+      ChannelService.RESPAWN_CENTER_TILE_X,
+      ChannelService.RESPAWN_CENTER_TILE_Y,
+      index,
+      2,
+    );
+
+    return this.toWorldPosition(tile.x, tile.y);
   }
 
   private normalizeStep(value: number | undefined): number {
@@ -602,12 +609,12 @@ export class ChannelService {
       const nextX = this.clamp(
         monster.x + candidate.dx,
         0,
-        ChannelService.MAP_WIDTH,
+        ChannelService.MAX_POSITION_X,
       );
       const nextY = this.clamp(
         monster.y + candidate.dy,
         0,
-        ChannelService.MAP_HEIGHT,
+        ChannelService.MAX_POSITION_Y,
       );
       if (!this.isWalkablePosition(nextX, nextY)) {
         continue;
@@ -639,15 +646,117 @@ export class ChannelService {
   }
 
   private isWalkablePosition(x: number, y: number): boolean {
+    const tilePosition = this.toTilePosition(x, y);
+
+    if (!tilePosition) {
+      return false;
+    }
+
+    return !this.isWalkDisabledTile(tilePosition.x, tilePosition.y);
+  }
+
+  private toTilePosition(x: number, y: number) {
     if (
       x % ChannelService.TILE_SIZE !== 0 ||
       y % ChannelService.TILE_SIZE !== 0
     ) {
-      return false;
+      return null;
     }
 
     const tileX = x / ChannelService.TILE_SIZE;
     const tileY = y / ChannelService.TILE_SIZE;
-    return ChannelService.WALKABLE_TILE_SET.has(`${tileX}:${tileY}`);
+
+    if (
+      tileX < 0 ||
+      tileX > ChannelService.MAX_TILE_X ||
+      tileY < 0 ||
+      tileY > ChannelService.MAX_TILE_Y
+    ) {
+      return null;
+    }
+
+    return { x: tileX, y: tileY };
   }
+
+  private isWalkDisabledTile(tileX: number, tileY: number) {
+    return WALK_DISABLED_TILE_SET.has(`${tileX}:${tileY}`);
+  }
+
+  private findNearbyWalkableTile(
+    baseTileX: number,
+    baseTileY: number,
+    index: number,
+    minDistance = 0,
+  ) {
+    const targetIndex = Math.max(index, 0);
+    let walkableIndex = 0;
+
+    for (
+      let radius = 0;
+      radius <=
+      Math.max(ChannelService.MAP_TILE_WIDTH, ChannelService.MAP_TILE_HEIGHT);
+      radius += 1
+    ) {
+      for (
+        let tileY = Math.max(baseTileY - radius, 0);
+        tileY <= Math.min(baseTileY + radius, ChannelService.MAX_TILE_Y);
+        tileY += 1
+      ) {
+        for (
+          let tileX = Math.max(baseTileX - radius, 0);
+          tileX <= Math.min(baseTileX + radius, ChannelService.MAX_TILE_X);
+          tileX += 1
+        ) {
+          const distance = Math.max(
+            Math.abs(tileX - baseTileX),
+            Math.abs(tileY - baseTileY),
+          );
+
+          if (distance !== radius || distance < minDistance) {
+            continue;
+          }
+
+          if (this.isWalkDisabledTile(tileX, tileY)) {
+            continue;
+          }
+
+          if (walkableIndex === targetIndex) {
+            return { x: tileX, y: tileY };
+          }
+
+          walkableIndex += 1;
+        }
+      }
+    }
+
+    return {
+      x: baseTileX,
+      y: baseTileY,
+    };
+  }
+
+  private toWorldPosition(tileX: number, tileY: number) {
+    return {
+      x: this.clamp(
+        tileX * ChannelService.TILE_SIZE,
+        0,
+        ChannelService.MAX_POSITION_X,
+      ),
+      y: this.clamp(
+        tileY * ChannelService.TILE_SIZE,
+        0,
+        ChannelService.MAX_POSITION_Y,
+      ),
+    };
+  }
+}
+
+function buildWalkDisabledTileSet(source: DisabledPosition[]) {
+  const disabled = new Set<string>();
+
+  for (const position of source) {
+    disabled.add(`${position.x}:${position.y}`);
+  }
+
+  return disabled;
 }
