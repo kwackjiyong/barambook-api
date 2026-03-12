@@ -361,7 +361,7 @@ export class ChannelService {
 
     if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
       return {
-        error: '嶺뚣끉裕? 12嶺뚮씭??怨살춹???怨쀫꼶???????곕????덈펲.',
+        error: '최대 120마리까지만 소환가능합니다.',
       };
     }
 
