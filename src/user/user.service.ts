@@ -1,8 +1,14 @@
-﻿import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { createHash } from 'crypto';
 import type { BulkWriteResult } from 'mongodb';
 import { Model } from 'mongoose';
 import { CharacterVisibility } from '../member/character-visibility.schema';
+import { CharacterLike } from './character-like.schema';
 import { User } from './user.schema';
 
 export type UserSearchResult = {
@@ -14,7 +20,20 @@ export type UserSearchResult = {
   Grade: number;
   MaxHP: number | null;
   MaxMP: number | null;
+  likeCount: number;
   isHidden: boolean;
+};
+
+export type UserLikeRankingItem = {
+  name: string;
+  class: string;
+  level: number;
+  grade: number;
+  nation: string;
+  clan: string | null;
+  hp: number | null;
+  mp: number | null;
+  likeCount: number;
 };
 
 @Injectable()
@@ -24,6 +43,8 @@ export class UserService {
     private readonly userModel: Model<User>,
     @InjectModel('character_visibilities', 'barambook')
     private readonly characterVisibilityModel: Model<CharacterVisibility>,
+    @InjectModel('character_likes', 'barambook')
+    private readonly characterLikeModel: Model<CharacterLike>,
   ) {}
 
   findUsers(): Promise<User[]> {
@@ -68,6 +89,9 @@ export class UserService {
         .exec(),
     ]);
 
+    const likeCountsByName = await this.getLikeCountsByNames(
+      users.map((character) => character.Name),
+    );
     const hiddenCharacterNames = new Set(
       hiddenCharacters.map((character) => character.Name),
     );
@@ -76,6 +100,7 @@ export class UserService {
       this.toUserSearchResult(
         character,
         hiddenCharacterNames.has(character.Name),
+        likeCountsByName.get(character.Name) ?? 0,
       ),
     );
   }
@@ -91,17 +116,135 @@ export class UserService {
       throw new NotFoundException(`User not found. ${name}`);
     }
 
-    const hiddenCharacter = await this.characterVisibilityModel
-      .findOne({
-        MSWID: character.MSWID,
-        Name: character.Name,
-        isHidden: true,
-      })
+    const [hiddenCharacter, likeCount] = await Promise.all([
+      this.characterVisibilityModel
+        .findOne({
+          MSWID: character.MSWID,
+          Name: character.Name,
+          isHidden: true,
+        })
+        .select({ _id: 0, Name: 1 })
+        .lean()
+        .exec(),
+      this.getLikeCountForName(character.Name),
+    ]);
+
+    return this.toUserSearchResult(
+      character,
+      Boolean(hiddenCharacter),
+      likeCount,
+    );
+  }
+
+  async addCharacterLike(name: string, ipAddress: string) {
+    const trimmedName = (name ?? '').trim();
+    const character = await this.userModel
+      .findOne({ Name: trimmedName })
       .select({ _id: 0, Name: 1 })
       .lean()
       .exec();
 
-    return this.toUserSearchResult(character, Boolean(hiddenCharacter));
+    if (!character) {
+      throw new NotFoundException(`User not found. ${name}`);
+    }
+
+    try {
+      await this.characterLikeModel.create({
+        Name: character.Name,
+        ipHash: this.hashIpAddress(ipAddress),
+        likedDateKey: this.getLikedDateKey(),
+      });
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new ConflictException(
+          '같은 IP에서는 하루에 한 번만 인품을 남길 수 있습니다.',
+        );
+      }
+
+      throw error;
+    }
+
+    return {
+      name: character.Name,
+      likeCount: await this.getLikeCountForName(character.Name),
+    };
+  }
+
+  async getLikeRanking(limit = 10): Promise<UserLikeRankingItem[]> {
+    const rankingRows = await this.characterLikeModel
+      .aggregate<{ _id: string; likeCount: number }>([
+        {
+          $group: {
+            _id: '$Name',
+            likeCount: { $sum: 1 },
+          },
+        },
+        { $sort: { likeCount: -1, _id: 1 } },
+        { $limit: Math.max(limit * 3, limit) },
+      ])
+      .exec();
+
+    if (rankingRows.length === 0) {
+      return [];
+    }
+
+    const names = rankingRows.map((row) => row._id);
+    const [users, hiddenCharacters] = await Promise.all([
+      this.userModel
+        .find({ Name: { $in: names } })
+        .select({
+          _id: 0,
+          Name: 1,
+          ClanName: 1,
+          Class: 1,
+          Nation: 1,
+          Level: 1,
+          Grade: 1,
+          MaxHP: 1,
+          MaxMP: 1,
+        })
+        .lean()
+        .exec(),
+      this.characterVisibilityModel
+        .find({
+          Name: { $in: names },
+          isHidden: true,
+        })
+        .select({ _id: 0, Name: 1 })
+        .lean()
+        .exec(),
+    ]);
+
+    const userByName = new Map(users.map((user) => [user.Name, user]));
+    const hiddenNames = new Set(hiddenCharacters.map((item) => item.Name));
+
+    return rankingRows
+      .filter((row) => userByName.has(row._id) && !hiddenNames.has(row._id))
+      .slice(0, limit)
+      .map((row) => {
+        const user = userByName.get(row._id)!;
+        return {
+          name: user.Name,
+          class: user.Class,
+          level: user.Level,
+          grade: user.Grade,
+          nation: user.Nation,
+          clan: user.ClanName ?? null,
+          hp: user.MaxHP ?? null,
+          mp: user.MaxMP ?? null,
+          likeCount: row.likeCount,
+        };
+      });
+  }
+
+  async getLikeCountForName(name: string): Promise<number> {
+    const trimmedName = (name ?? '').trim();
+
+    if (!trimmedName) {
+      return 0;
+    }
+
+    return this.characterLikeModel.countDocuments({ Name: trimmedName }).exec();
   }
 
   async upsertUsers(userDatas: Array<User>): Promise<BulkWriteResult> {
@@ -119,6 +262,7 @@ export class UserService {
   private toUserSearchResult(
     character: User,
     isHidden: boolean,
+    likeCount: number,
   ): UserSearchResult {
     if (!isHidden) {
       return {
@@ -130,6 +274,7 @@ export class UserService {
         Grade: character.Grade,
         MaxHP: character.MaxHP,
         MaxMP: character.MaxMP,
+        likeCount,
         isHidden: false,
       };
     }
@@ -143,7 +288,56 @@ export class UserService {
       Grade: 0,
       MaxHP: null,
       MaxMP: null,
+      likeCount,
       isHidden: true,
     };
+  }
+
+  private async getLikeCountsByNames(names: string[]) {
+    if (names.length === 0) {
+      return new Map<string, number>();
+    }
+
+    const rows = await this.characterLikeModel
+      .aggregate<{ _id: string; likeCount: number }>([
+        {
+          $match: {
+            Name: { $in: names },
+          },
+        },
+        {
+          $group: {
+            _id: '$Name',
+            likeCount: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    return new Map(rows.map((row) => [row._id, row.likeCount]));
+  }
+
+  private getLikedDateKey(date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    return formatter.format(date);
+  }
+
+  private hashIpAddress(ipAddress: string) {
+    return createHash('sha256').update(ipAddress).digest('hex');
+  }
+
+  private isDuplicateKeyError(error: unknown) {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 11000
+    );
   }
 }

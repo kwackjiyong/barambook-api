@@ -42,6 +42,7 @@ export interface ChannelParticipant {
   id: string;
   accountId: string;
   displayName: string;
+  likeCount: number;
   isGuest: boolean;
   x: number;
   y: number;
@@ -54,6 +55,7 @@ export interface ChannelChatMessage {
   id: string;
   senderId: string;
   senderName: string;
+  senderLikeCount: number;
   message: string;
   sentAt: string;
   expiresAt?: string | null;
@@ -129,8 +131,12 @@ export class ChannelService {
   private readonly lastMonsterMovedAtById = new Map<string, number>();
   private lastMonsterSpawnedAt = 0;
 
-  addParticipant(member: Member, socketId: string): ChannelParticipant {
-    const participant = this.createParticipant(member, socketId);
+  addParticipant(
+    member: Member,
+    socketId: string,
+    likeCount: number,
+  ): ChannelParticipant {
+    const participant = this.createParticipant(member, socketId, likeCount);
     this.participants.set(socketId, participant);
     this.socketIdsByAccountId.set(member.accountId, socketId);
     return participant;
@@ -281,6 +287,7 @@ export class ChannelService {
       id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
       senderId: sender.id,
       senderName: sender.displayName,
+      senderLikeCount: sender.likeCount,
       message,
       sentAt: new Date(now).toISOString(),
       isPinned,
@@ -475,6 +482,7 @@ export class ChannelService {
   private createParticipant(
     member: Member,
     socketId: string,
+    likeCount: number,
   ): ChannelParticipant {
     const position = this.getSpawnPosition(this.participants.size);
 
@@ -482,6 +490,7 @@ export class ChannelService {
       id: socketId,
       accountId: member.accountId,
       displayName: member.representativeCharacterName ?? member.accountId,
+      likeCount,
       isGuest: false,
       x: position.x,
       y: position.y,
@@ -497,6 +506,7 @@ export class ChannelService {
       id: socketId,
       accountId: `guest:${socketId}`,
       displayName: '',
+      likeCount: 0,
       isGuest: true,
       x: position.x,
       y: position.y,

@@ -10,6 +10,7 @@
 import { Logger } from '@nestjs/common';
 import { Namespace, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
+import { UserService } from '../user/user.service';
 import {
   ChannelRenderState,
   ChannelService,
@@ -51,6 +52,7 @@ export class ChannelGateway
 
   constructor(
     private readonly memberService: MemberService,
+    private readonly userService: UserService,
     private readonly channelService: ChannelService,
   ) {
     this.startMonsterLoop();
@@ -69,6 +71,9 @@ export class ChannelGateway
     try {
       const member =
         await this.memberService.findAuthenticatedMember(sessionToken);
+      const likeCount = await this.userService.getLikeCountForName(
+        member.representativeCharacterName ?? member.accountId,
+      );
       const previousSocketId = this.channelService.findSocketIdByAccountId(
         member.accountId,
       );
@@ -86,7 +91,11 @@ export class ChannelGateway
         }
       }
 
-      const participant = this.channelService.addParticipant(member, client.id);
+      const participant = this.channelService.addParticipant(
+        member,
+        client.id,
+        likeCount,
+      );
 
       client.emit(
         'channel:bootstrap',

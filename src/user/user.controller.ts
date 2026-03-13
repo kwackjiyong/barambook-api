@@ -1,6 +1,15 @@
-﻿/* eslint-disable @typescript-eslint/no-unsafe-call */
-import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
-import { Response } from 'express';
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
 import { UserService } from './user.service';
 import { User } from './user.schema';
 
@@ -25,6 +34,7 @@ export class UserController {
         grade: user.Grade,
         hp: user.MaxHP,
         mp: user.MaxMP,
+        likeCount: user.likeCount,
         isHidden: user.isHidden,
       };
     });
@@ -43,8 +53,19 @@ export class UserController {
       grade: user.Grade,
       hp: user.MaxHP,
       mp: user.MaxMP,
+      likeCount: user.likeCount,
       isHidden: user.isHidden,
     };
+  }
+
+  @Get('/like-ranking')
+  async getLikeRanking() {
+    return this.svc.getLikeRanking(10);
+  }
+
+  @Post('/:name/like')
+  async likeCharacter(@Param('name') name: string, @Req() req: Request) {
+    return this.svc.addCharacterLike(name, this.extractRequestIp(req));
   }
 
   @Post('/userDatas')
@@ -59,5 +80,17 @@ export class UserController {
     } else {
       res.send({ result: 'fail' });
     }
+  }
+
+  private extractRequestIp(req: Request) {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const firstForwardedIp =
+      typeof forwardedFor === 'string'
+        ? forwardedFor.split(',')[0]
+        : Array.isArray(forwardedFor)
+          ? forwardedFor[0]
+          : null;
+    const rawIp = (firstForwardedIp ?? req.ip ?? req.socket.remoteAddress ?? '').trim();
+    return rawIp.replace(/^::ffff:/, '') || 'unknown';
   }
 }
