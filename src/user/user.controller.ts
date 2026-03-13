@@ -60,7 +60,7 @@ export class UserController {
 
   @Get('/like-ranking')
   async getLikeRanking() {
-    return this.svc.getLikeRanking(10);
+    return this.svc.getLikeRanking(5);
   }
 
   @Post('/:name/like')

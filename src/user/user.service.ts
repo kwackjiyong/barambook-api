@@ -1,7 +1,9 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
@@ -37,7 +39,9 @@ export type UserLikeRankingItem = {
 };
 
 @Injectable()
-export class UserService {
+export class UserService implements OnModuleInit {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectModel('users', 'barambook')
     private readonly userModel: Model<User>,
@@ -46,6 +50,10 @@ export class UserService {
     @InjectModel('character_likes', 'barambook')
     private readonly characterLikeModel: Model<CharacterLike>,
   ) {}
+
+  async onModuleInit() {
+    await this.ensureCharacterLikeIndexes();
+  }
 
   findUsers(): Promise<User[]> {
     return this.userModel.find();
@@ -330,6 +338,89 @@ export class UserService {
 
   private hashIpAddress(ipAddress: string) {
     return createHash('sha256').update(ipAddress).digest('hex');
+  }
+
+  private async ensureCharacterLikeIndexes() {
+    await this.removeDuplicateLikesByIpAndDate();
+
+    const indexes = await this.characterLikeModel.collection.indexes();
+    const legacyUniqueIndexNames = indexes
+      .filter((index) => {
+        if (index.name === '_id_') {
+          return false;
+        }
+
+        const keyNames = Object.keys(index.key ?? {});
+        const isCorrectUniqueIndex =
+          index.unique === true &&
+          keyNames.length === 2 &&
+          keyNames[0] === 'ipHash' &&
+          keyNames[1] === 'likedDateKey';
+
+        if (isCorrectUniqueIndex) {
+          return false;
+        }
+
+        return index.unique === true;
+      })
+      .map((index) => index.name)
+      .filter((indexName): indexName is string => Boolean(indexName));
+
+    for (const indexName of legacyUniqueIndexNames) {
+      await this.characterLikeModel.collection.dropIndex(indexName);
+      this.logger.warn(`Dropped legacy character_likes index: ${indexName}`);
+    }
+
+    await this.characterLikeModel.collection.createIndex(
+      { ipHash: 1, likedDateKey: 1 },
+      { unique: true, name: 'ipHash_1_likedDateKey_1' },
+    );
+  }
+
+  private async removeDuplicateLikesByIpAndDate() {
+    const duplicateGroups = await this.characterLikeModel
+      .aggregate<{
+        _id: { ipHash: string; likedDateKey: string };
+        documentIds: string[];
+        count: number;
+      }>([
+        {
+          $group: {
+            _id: {
+              ipHash: '$ipHash',
+              likedDateKey: '$likedDateKey',
+            },
+            documentIds: { $push: { $toString: '$_id' } },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $match: {
+            count: { $gt: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    if (duplicateGroups.length === 0) {
+      return;
+    }
+
+    const duplicateIdsToDelete = duplicateGroups.flatMap((group) =>
+      group.documentIds.slice(1),
+    );
+
+    if (duplicateIdsToDelete.length === 0) {
+      return;
+    }
+
+    const deleteResult = await this.characterLikeModel.deleteMany({
+      _id: { $in: duplicateIdsToDelete },
+    });
+
+    this.logger.warn(
+      `Removed ${deleteResult.deletedCount ?? 0} duplicate character_likes rows for ipHash+likedDateKey uniqueness`,
+    );
   }
 
   private isDuplicateKeyError(error: unknown) {
