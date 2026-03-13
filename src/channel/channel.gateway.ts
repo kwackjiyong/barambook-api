@@ -307,12 +307,12 @@ export class ChannelGateway
   private startMonsterLoop() {
     this.monsterLoopTimer = setInterval(() => {
       const removedMonsters = this.channelService.removeExpiredMonsters();
-      const autoSpawnedMonster = this.channelService.autoSpawnMonster();
+      // const autoSpawnedMonster = this.channelService.autoSpawnMonster();
       const movedMonsters = this.channelService.moveMonsters();
 
-      if (autoSpawnedMonster) {
-        this.server.emit('channel:monster-spawned', autoSpawnedMonster);
-      }
+      // if (autoSpawnedMonster) {
+      //   this.server.emit('channel:monster-spawned', autoSpawnedMonster);
+      // }
 
       for (const monster of removedMonsters) {
         this.emitMonsterRemoved(monster);

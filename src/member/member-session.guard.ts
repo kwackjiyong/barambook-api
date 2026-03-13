@@ -24,7 +24,8 @@ export class MemberSessionGuard implements CanActivate {
       throw new UnauthorizedException('로그인이 필요합니다.');
     }
 
-    const member = await this.memberService.findAuthenticatedMember(sessionToken);
+    const member =
+      await this.memberService.findAuthenticatedMember(sessionToken);
     req.member = member;
 
     return true;
