@@ -187,12 +187,6 @@ export class ChannelGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: SpawnMonsterBody,
   ): void {
-    if (!this.channelService.canManageMonster(client.id)) {
-      client.emit('channel:error', {
-        message: '몬스터 소환은 바람비전 운영자만 사용할 수 있습니다.',
-      });
-      return;
-    }
 
     const result = this.channelService.spawnMonster(client.id, payload?.name);
 
@@ -339,3 +333,4 @@ export class ChannelGateway
     });
   }
 }
+

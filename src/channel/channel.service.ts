@@ -444,13 +444,8 @@ export class ChannelService {
     return this.spawnMonster(null).monster ?? null;
   }
 
-  canManageMonster(socketId: string) {
-    const participant = this.participants.get(socketId);
 
-    return (
-      participant?.isGuest !== true && participant?.displayName === '바람비전'
-    );
-  }
+
   moveMonsters(now = Date.now()): ChannelMonster[] {
     this.pruneExpiredMonsters(now);
 
@@ -770,3 +765,4 @@ function buildWalkDisabledTileSet(source: DisabledPosition[]) {
 
   return disabled;
 }
+
