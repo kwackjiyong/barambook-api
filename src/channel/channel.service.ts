@@ -98,8 +98,8 @@ export class ChannelService {
     ChannelService.MAX_TILE_X * ChannelService.TILE_SIZE;
   private static readonly MAX_POSITION_Y =
     ChannelService.MAX_TILE_Y * ChannelService.TILE_SIZE;
-  private static readonly RESPAWN_CENTER_TILE_X = 74;
-  private static readonly RESPAWN_CENTER_TILE_Y = 137;
+  private static readonly RESPAWN_CENTER_TILE_X = 71;
+  private static readonly RESPAWN_CENTER_TILE_Y = 130;
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
@@ -389,7 +389,8 @@ export class ChannelService {
 
     if (this.activeMonsterIdByOwnerKey.has(ownerKey)) {
       return {
-        error: '이미 소환한 몬스터가 있습니다. 몬스터가 사라지면 다시 소환할 수 있습니다.',
+        error:
+          '이미 소환한 몬스터가 있습니다. 몬스터가 사라지면 다시 소환할 수 있습니다.',
       };
     }
 
@@ -467,8 +468,6 @@ export class ChannelService {
 
     return this.spawnMonster(null).monster ?? null;
   }
-
-
 
   moveMonsters(now = Date.now()): ChannelMonster[] {
     this.pruneExpiredMonsters(now);
@@ -824,4 +823,3 @@ function buildWalkDisabledTileSet(source: DisabledPosition[]) {
 
   return disabled;
 }
-

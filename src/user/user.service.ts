@@ -11,6 +11,7 @@ import type { BulkWriteResult } from 'mongodb';
 import { Model } from 'mongoose';
 import { CharacterVisibility } from '../member/character-visibility.schema';
 import { CharacterLike } from './character-like.schema';
+import { CharacterSearch } from './character-search.schema';
 import { User } from './user.schema';
 
 export type UserSearchResult = {
@@ -35,7 +36,7 @@ export type UserLikeRankingItem = {
   clan: string | null;
   hp: number | null;
   mp: number | null;
-  likeCount: number;
+  searchCount: number;
 };
 
 @Injectable()
@@ -49,6 +50,8 @@ export class UserService implements OnModuleInit {
     private readonly characterVisibilityModel: Model<CharacterVisibility>,
     @InjectModel('character_likes', 'barambook')
     private readonly characterLikeModel: Model<CharacterLike>,
+    @InjectModel('character_searches', 'barambook')
+    private readonly characterSearchModel: Model<CharacterSearch>,
   ) {}
 
   async onModuleInit() {
@@ -70,8 +73,9 @@ export class UserService implements OnModuleInit {
   }
 
   async findUserByName(name: string): Promise<UserSearchResult[]> {
+    const trimmedName = (name ?? '').trim();
     const user = await this.userModel
-      .findOne({ Name: name })
+      .findOne({ Name: trimmedName })
       .select({ _id: 0, MSWID: 1, Name: 1 })
       .lean()
       .exec();
@@ -79,6 +83,8 @@ export class UserService implements OnModuleInit {
     if (!user) {
       throw new NotFoundException(`User not found. ${name}`);
     }
+
+    await this.recordCharacterSearch(user.Name);
 
     const [users, hiddenCharacters] = await Promise.all([
       this.userModel
@@ -124,6 +130,8 @@ export class UserService implements OnModuleInit {
       throw new NotFoundException(`User not found. ${name}`);
     }
 
+    await this.recordCharacterSearch(character.Name);
+
     const [hiddenCharacter, likeCount] = await Promise.all([
       this.characterVisibilityModel
         .findOne({
@@ -141,6 +149,43 @@ export class UserService implements OnModuleInit {
       character,
       Boolean(hiddenCharacter),
       likeCount,
+    );
+  }
+
+  async findUsersByClanName(name: string): Promise<UserSearchResult[]> {
+    const trimmedName = (name ?? '').trim();
+
+    if (!trimmedName) {
+      return [];
+    }
+
+    const users = await this.userModel
+      .find({ ClanName: trimmedName })
+      .sort({ Grade: -1, Level: -1, Name: 1 })
+      .lean()
+      .exec();
+
+    if (users.length === 0) {
+      return [];
+    }
+
+    const hiddenCharacters = await this.characterVisibilityModel
+      .find({
+        Name: { $in: users.map((character) => character.Name) },
+        isHidden: true,
+      })
+      .select({ _id: 0, Name: 1 })
+      .lean()
+      .exec();
+
+    const hiddenCharacterNames = new Set(hiddenCharacters.map((character) => character.Name));
+    const visibleUsers = users.filter((character) => !hiddenCharacterNames.has(character.Name));
+    const likeCountsByName = await this.getLikeCountsByNames(
+      visibleUsers.map((character) => character.Name),
+    );
+
+    return visibleUsers.map((character) =>
+      this.toUserSearchResult(character, false, likeCountsByName.get(character.Name) ?? 0),
     );
   }
 
@@ -178,16 +223,16 @@ export class UserService implements OnModuleInit {
     };
   }
 
-  async getLikeRanking(limit = 10): Promise<UserLikeRankingItem[]> {
-    const rankingRows = await this.characterLikeModel
-      .aggregate<{ _id: string; likeCount: number }>([
+  async getSearchRanking(limit = 10): Promise<UserLikeRankingItem[]> {
+    const rankingRows = await this.characterSearchModel
+      .aggregate<{ _id: string; searchCount: number }>([
         {
           $group: {
             _id: '$Name',
-            likeCount: { $sum: 1 },
+            searchCount: { $sum: 1 },
           },
         },
-        { $sort: { likeCount: -1, _id: 1 } },
+        { $sort: { searchCount: -1, _id: 1 } },
         { $limit: Math.max(limit * 3, limit) },
       ])
       .exec();
@@ -240,7 +285,7 @@ export class UserService implements OnModuleInit {
           clan: user.ClanName ?? null,
           hp: user.MaxHP ?? null,
           mp: user.MaxMP ?? null,
-          likeCount: row.likeCount,
+          searchCount: row.searchCount,
         };
       });
   }
@@ -323,6 +368,18 @@ export class UserService implements OnModuleInit {
       .exec();
 
     return new Map(rows.map((row) => [row._id, row.likeCount]));
+  }
+
+  private async recordCharacterSearch(name: string) {
+    const trimmedName = (name ?? '').trim();
+
+    if (!trimmedName) {
+      return;
+    }
+
+    await this.characterSearchModel.create({
+      Name: trimmedName,
+    });
   }
 
   private getLikedDateKey(date = new Date()) {

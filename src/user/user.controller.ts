@@ -58,9 +58,27 @@ export class UserController {
     };
   }
 
-  @Get('/like-ranking')
-  async getLikeRanking() {
-    return this.svc.getLikeRanking(5);
+  @Get('/clan')
+  async getUsersByClan(@Query('name') name: string) {
+    const users = await this.svc.findUsersByClanName(name);
+
+    return users.map((user) => ({
+      name: user.Name,
+      clan: user.ClanName,
+      class: user.Class,
+      nation: user.Nation,
+      level: user.Level,
+      grade: user.Grade,
+      hp: user.MaxHP,
+      mp: user.MaxMP,
+      likeCount: user.likeCount,
+      isHidden: user.isHidden,
+    }));
+  }
+
+  @Get('/search-ranking')
+  async getSearchRanking() {
+    return this.svc.getSearchRanking(5);
   }
 
   @Post('/:name/like')
