@@ -56,6 +56,7 @@ export class UserService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureCharacterLikeIndexes();
+    await this.ensureCharacterSearchIndexes();
   }
 
   findUsers(): Promise<User[]> {
@@ -72,7 +73,7 @@ export class UserService implements OnModuleInit {
       .exec();
   }
 
-  async findUserByName(name: string): Promise<UserSearchResult[]> {
+  async findUserByName(name: string, ipAddress: string): Promise<UserSearchResult[]> {
     const trimmedName = (name ?? '').trim();
     const user = await this.userModel
       .findOne({ Name: trimmedName })
@@ -84,7 +85,7 @@ export class UserService implements OnModuleInit {
       throw new NotFoundException(`User not found. ${name}`);
     }
 
-    await this.recordCharacterSearch(user.Name);
+    await this.recordCharacterSearch(user.Name, ipAddress);
 
     const [users, hiddenCharacters] = await Promise.all([
       this.userModel
@@ -119,7 +120,7 @@ export class UserService implements OnModuleInit {
     );
   }
 
-  async findSingleUserByName(name: string): Promise<UserSearchResult> {
+  async findSingleUserByName(name: string, ipAddress: string): Promise<UserSearchResult> {
     const trimmedName = (name ?? '').trim();
     const character = await this.userModel
       .findOne({ Name: trimmedName })
@@ -130,7 +131,7 @@ export class UserService implements OnModuleInit {
       throw new NotFoundException(`User not found. ${name}`);
     }
 
-    await this.recordCharacterSearch(character.Name);
+    await this.recordCharacterSearch(character.Name, ipAddress);
 
     const [hiddenCharacter, likeCount] = await Promise.all([
       this.characterVisibilityModel
@@ -224,8 +225,14 @@ export class UserService implements OnModuleInit {
   }
 
   async getSearchRanking(limit = 10): Promise<UserLikeRankingItem[]> {
+    const todayKey = this.getDateKey();
     const rankingRows = await this.characterSearchModel
       .aggregate<{ _id: string; searchCount: number }>([
+        {
+          $match: {
+            searchDateKey: todayKey,
+          },
+        },
         {
           $group: {
             _id: '$Name',
@@ -370,19 +377,29 @@ export class UserService implements OnModuleInit {
     return new Map(rows.map((row) => [row._id, row.likeCount]));
   }
 
-  private async recordCharacterSearch(name: string) {
+  private async recordCharacterSearch(name: string, ipAddress: string) {
     const trimmedName = (name ?? '').trim();
 
     if (!trimmedName) {
       return;
     }
 
-    await this.characterSearchModel.create({
-      Name: trimmedName,
-    });
+    try {
+      await this.characterSearchModel.create({
+        Name: trimmedName,
+        ipHash: this.hashIpAddress(ipAddress),
+        searchDateKey: this.getDateKey(),
+      });
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        return;
+      }
+
+      throw error;
+    }
   }
 
-  private getLikedDateKey(date = new Date()) {
+  private getDateKey(date = new Date()) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Seoul',
       year: 'numeric',
@@ -395,6 +412,10 @@ export class UserService implements OnModuleInit {
 
   private hashIpAddress(ipAddress: string) {
     return createHash('sha256').update(ipAddress).digest('hex');
+  }
+
+  private getLikedDateKey(date = new Date()) {
+    return this.getDateKey(date);
   }
 
   private async ensureCharacterLikeIndexes() {
@@ -477,6 +498,104 @@ export class UserService implements OnModuleInit {
 
     this.logger.warn(
       `Removed ${deleteResult.deletedCount ?? 0} duplicate character_likes rows for ipHash+likedDateKey uniqueness`,
+    );
+  }
+
+  private async ensureCharacterSearchIndexes() {
+    await this.removeDuplicateSearchesByIpCharacterAndDate();
+
+    const indexes = await this.characterSearchModel.collection.indexes();
+    const legacyUniqueIndexNames = indexes
+      .filter((index) => {
+        if (index.name === '_id_') {
+          return false;
+        }
+
+        const keyNames = Object.keys(index.key ?? {});
+        const isCorrectUniqueIndex =
+          index.unique === true &&
+          keyNames.length === 3 &&
+          keyNames[0] === 'ipHash' &&
+          keyNames[1] === 'Name' &&
+          keyNames[2] === 'searchDateKey';
+
+        if (isCorrectUniqueIndex) {
+          return false;
+        }
+
+        return index.unique === true;
+      })
+      .map((index) => index.name)
+      .filter((indexName): indexName is string => Boolean(indexName));
+
+    for (const indexName of legacyUniqueIndexNames) {
+      await this.characterSearchModel.collection.dropIndex(indexName);
+      this.logger.warn(`Dropped legacy character_searches index: ${indexName}`);
+    }
+
+    await this.characterSearchModel.collection.createIndex(
+      { ipHash: 1, Name: 1, searchDateKey: 1 },
+      {
+        unique: true,
+        name: 'ipHash_1_Name_1_searchDateKey_1',
+        partialFilterExpression: {
+          ipHash: { $exists: true },
+          searchDateKey: { $exists: true },
+        },
+      },
+    );
+  }
+
+  private async removeDuplicateSearchesByIpCharacterAndDate() {
+    const duplicateGroups = await this.characterSearchModel
+      .aggregate<{
+        _id: { ipHash: string; Name: string; searchDateKey: string };
+        documentIds: string[];
+        count: number;
+      }>([
+        {
+          $match: {
+            ipHash: { $exists: true, $ne: null },
+            searchDateKey: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              ipHash: '$ipHash',
+              Name: '$Name',
+              searchDateKey: '$searchDateKey',
+            },
+            documentIds: { $push: { $toString: '$_id' } },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $match: {
+            count: { $gt: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    if (duplicateGroups.length === 0) {
+      return;
+    }
+
+    const duplicateIdsToDelete = duplicateGroups.flatMap((group) =>
+      group.documentIds.slice(1),
+    );
+
+    if (duplicateIdsToDelete.length === 0) {
+      return;
+    }
+
+    const deleteResult = await this.characterSearchModel.deleteMany({
+      _id: { $in: duplicateIdsToDelete },
+    });
+
+    this.logger.warn(
+      `Removed ${deleteResult.deletedCount ?? 0} duplicate character_searches rows for ipHash+Name+searchDateKey uniqueness`,
     );
   }
 

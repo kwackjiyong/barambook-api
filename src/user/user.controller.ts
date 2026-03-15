@@ -21,8 +21,8 @@ export class UserController {
   constructor(private readonly svc: UserService) {}
 
   @Get('/')
-  async getUserData(@Query('name') name: string) {
-    const users = await this.svc.findUserByName(name);
+  async getUserData(@Query('name') name: string, @Req() req: Request) {
+    const users = await this.svc.findUserByName(name, this.extractRequestIp(req));
 
     return users?.map((user) => {
       return {
@@ -41,8 +41,8 @@ export class UserController {
   }
 
   @Get('/single')
-  async getSingleUserData(@Query('name') name: string) {
-    const user = await this.svc.findSingleUserByName(name);
+  async getSingleUserData(@Query('name') name: string, @Req() req: Request) {
+    const user = await this.svc.findSingleUserByName(name, this.extractRequestIp(req));
 
     return {
       name: user.Name,
