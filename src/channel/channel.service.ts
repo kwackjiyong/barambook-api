@@ -72,11 +72,6 @@ export interface ChannelMonsterSpawnResult {
   monster?: ChannelMonster;
 }
 
-interface MonsterOwnership {
-  ownerKey: string;
-  monsterId: string;
-}
-
 interface MovePayload {
   dx?: number;
   dy?: number;
@@ -111,6 +106,7 @@ export class ChannelService {
   private static readonly MONSTER_MOVE_INTERVAL_MS = 1200;
   private static readonly MONSTER_MOVE_STAGGER_MS = 900;
   private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 5 * 1000;
+  private static readonly MONSTER_SPAWN_OPERATOR_NAME = '바람비전';
   private static readonly MAX_MONSTERS = 120;
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
@@ -131,8 +127,6 @@ export class ChannelService {
   private readonly guestIpsBySocketId = new Map<string, string>();
   private readonly messages: ChannelChatMessage[] = [];
   private readonly monsters = new Map<string, ChannelMonster>();
-  private readonly monsterOwnershipById = new Map<string, MonsterOwnership>();
-  private readonly activeMonsterIdByOwnerKey = new Map<string, string>();
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
   private readonly lastMonsterMovedAtById = new Map<string, number>();
@@ -373,24 +367,23 @@ export class ChannelService {
   ): ChannelMonsterSpawnResult {
     this.pruneExpiredMonsters();
 
-    const ownerKey = this.resolveMonsterOwnerKey(socketId);
+    const participant = socketId ? this.participants.get(socketId) ?? null : null;
 
-    if (!ownerKey) {
+    if (socketId && !participant) {
       return {
         error: '몬스터를 소환할 수 있는 사용자를 찾을 수 없습니다.',
+      };
+    }
+
+    if (participant && !this.isMonsterSpawnOperator(participant)) {
+      return {
+        error: '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
       };
     }
 
     if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
       return {
         error: '최대 120마리까지만 소환가능합니다.',
-      };
-    }
-
-    if (this.activeMonsterIdByOwnerKey.has(ownerKey)) {
-      return {
-        error:
-          '이미 소환한 몬스터가 있습니다. 몬스터가 사라지면 다시 소환할 수 있습니다.',
       };
     }
 
@@ -413,11 +406,6 @@ export class ChannelService {
     };
 
     this.monsters.set(monster.id, monster);
-    this.monsterOwnershipById.set(monster.id, {
-      ownerKey,
-      monsterId: monster.id,
-    });
-    this.activeMonsterIdByOwnerKey.set(ownerKey, monster.id);
     this.lastMonsterMovedAtById.set(
       monster.id,
       now -
@@ -592,40 +580,17 @@ export class ChannelService {
     }
   }
 
-  private resolveMonsterOwnerKey(socketId?: string | null) {
-    if (!socketId) {
-      return null;
-    }
-
-    const participant = this.participants.get(socketId);
-
-    if (!participant) {
-      return null;
-    }
-
-    if (participant.isGuest) {
-      const guestIpAddress = this.guestIpsBySocketId.get(socketId);
-      return guestIpAddress ? `guest:${guestIpAddress}` : participant.accountId;
-    }
-
-    return `account:${participant.accountId}`;
+  private isMonsterSpawnOperator(participant: ChannelParticipant) {
+    return (
+      participant.isGuest !== true &&
+      participant.displayName.trim() ===
+        ChannelService.MONSTER_SPAWN_OPERATOR_NAME
+    );
   }
 
   private detachMonster(monsterId: string) {
     this.monsters.delete(monsterId);
     this.lastMonsterMovedAtById.delete(monsterId);
-
-    const ownership = this.monsterOwnershipById.get(monsterId);
-
-    if (!ownership) {
-      return;
-    }
-
-    this.monsterOwnershipById.delete(monsterId);
-
-    if (this.activeMonsterIdByOwnerKey.get(ownership.ownerKey) === monsterId) {
-      this.activeMonsterIdByOwnerKey.delete(ownership.ownerKey);
-    }
   }
 
   private randomInt(min: number, max: number) {

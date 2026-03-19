@@ -8,59 +8,53 @@ describe('ChannelService monster spawn limit', () => {
     service = new ChannelService();
   });
 
-  it('allows only one active monster per authenticated user', () => {
-    service.addParticipant(createMember('tester'), 'socket-1', 0);
+  it('allows the 바람비전 operator to spawn up to the shared 120 monster limit', () => {
+    service.addParticipant(
+      createMember('tester', '\uBC14\uB78C\uBE44\uC804'),
+      'socket-1',
+      0,
+    );
 
-    const firstSpawn = service.spawnMonster('socket-1');
-    const secondSpawn = service.spawnMonster('socket-1');
+    const spawned = Array.from({ length: 120 }, () =>
+      service.spawnMonster('socket-1'),
+    );
+    const overflowSpawn = service.spawnMonster('socket-1');
 
-    expect(firstSpawn.monster).toBeDefined();
-    expect(secondSpawn.monster).toBeUndefined();
-    expect(secondSpawn.error).toBeDefined();
+    expect(spawned.every((result) => result.monster)).toBe(true);
+    expect(overflowSpawn.monster).toBeUndefined();
+    expect(overflowSpawn.error).toBe('최대 120마리까지만 소환가능합니다.');
   });
 
-  it('recharges summon availability after the user monster expires', () => {
-    service.addParticipant(createMember('tester'), 'socket-1', 0);
+  it('blocks non-operator members from spawning monsters', () => {
+    service.addParticipant(createMember('tester', 'tester-character'), 'socket-1', 0);
 
-    const firstSpawn = service.spawnMonster('socket-1');
-    expect(firstSpawn.monster).toBeDefined();
+    const result = service.spawnMonster('socket-1');
 
-    const expiresAt = new Date(firstSpawn.monster!.expiresAt).getTime();
-    const removedMonsters = service.removeExpiredMonsters(expiresAt);
-    const nextSpawn = service.spawnMonster('socket-1');
-
-    expect(removedMonsters).toHaveLength(1);
-    expect(removedMonsters[0]?.id).toBe(firstSpawn.monster!.id);
-    expect(nextSpawn.error).toBeUndefined();
-    expect(nextSpawn.monster).toBeDefined();
+    expect(result.monster).toBeUndefined();
+    expect(result.error).toBe(
+      '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
+    );
   });
 
-  it('keeps the guest summon lock across reconnects from the same IP until the monster disappears', () => {
+  it('blocks guests from spawning monsters', () => {
     service.addGuestParticipant('guest-socket-1', '127.0.0.1');
 
-    const firstSpawn = service.spawnMonster('guest-socket-1');
-    expect(firstSpawn.monster).toBeDefined();
+    const result = service.spawnMonster('guest-socket-1');
 
-    service.removeParticipant('guest-socket-1');
-    service.addGuestParticipant('guest-socket-2', '127.0.0.1');
-
-    const blockedSpawn = service.spawnMonster('guest-socket-2');
-    expect(blockedSpawn.error).toBeDefined();
-
-    service.removeMonster(firstSpawn.monster!.id);
-
-    const nextSpawn = service.spawnMonster('guest-socket-2');
-    expect(nextSpawn.error).toBeUndefined();
-    expect(nextSpawn.monster).toBeDefined();
+    expect(result.monster).toBeUndefined();
+    expect(result.error).toBe(
+      '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
+    );
   });
 });
 
-function createMember(accountId: string) {
+function createMember(accountId: string, representativeCharacterName?: string) {
   return {
     accountId,
     passwordHash: 'hash',
     MSWID: `${accountId}-mswid`,
     verifiedAt: new Date(),
-    representativeCharacterName: `${accountId}-character`,
+    representativeCharacterName:
+      representativeCharacterName ?? `${accountId}-character`,
   } as Member;
 }
