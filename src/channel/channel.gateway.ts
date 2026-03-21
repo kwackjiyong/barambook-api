@@ -172,13 +172,17 @@ export class ChannelGateway
       return;
     }
 
-    const participant = this.channelService.updateParticipantRender(
+    const result = this.channelService.updateParticipantRender(
       client.id,
       payload,
     );
 
-    if (participant) {
-      this.server.emit('channel:participant-updated', participant);
+    if (result.participant) {
+      this.server.emit('channel:participant-updated', result.participant);
+    }
+
+    if (result.removedMonster) {
+      this.emitMonsterRemoved(result.removedMonster, 'hit');
     }
   }
 
@@ -310,15 +314,15 @@ export class ChannelGateway
   private startMonsterLoop() {
     this.monsterLoopTimer = setInterval(() => {
       const removedMonsters = this.channelService.removeExpiredMonsters();
-      // const autoSpawnedMonster = this.channelService.autoSpawnMonster();
+      const autoSpawnedMonster = this.channelService.autoSpawnMonster();
       const movedMonsters = this.channelService.moveMonsters();
 
-      // if (autoSpawnedMonster) {
-      //   this.server.emit('channel:monster-spawned', autoSpawnedMonster);
-      // }
+      if (autoSpawnedMonster) {
+        this.server.emit('channel:monster-spawned', autoSpawnedMonster);
+      }
 
       for (const monster of removedMonsters) {
-        this.emitMonsterRemoved(monster);
+        this.emitMonsterRemoved(monster, 'expired');
       }
 
       if (movedMonsters.length > 0) {
@@ -327,9 +331,13 @@ export class ChannelGateway
     }, 200);
   }
 
-  private emitMonsterRemoved(monster: ChannelMonster) {
+  private emitMonsterRemoved(
+    monster: ChannelMonster,
+    reason: 'expired' | 'hit',
+  ) {
     this.server.emit('channel:monster-removed', {
       monsterId: monster.id,
+      reason,
     });
   }
 }
