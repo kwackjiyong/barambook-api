@@ -74,7 +74,9 @@ function normalizeEntry(input?: Partial<WeaponDyeExceptionEntry> | null): Weapon
 
 function normalizeFile(input?: Partial<WeaponDyeExceptionFile> | null): WeaponDyeExceptionFile {
   const empty = createEmptyWeaponDyeExceptionFile();
-  const weapons = input?.weapons ?? {};
+  const weapons = (input?.weapons ?? {}) as Partial<
+    Record<WeaponDyeWeaponType, Record<string, Partial<WeaponDyeExceptionEntry>>>
+  >;
 
   const normalizeGroup = (weaponType: WeaponDyeWeaponType) => {
     const group = weapons[weaponType];
