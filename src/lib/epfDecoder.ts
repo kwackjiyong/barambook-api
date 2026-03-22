@@ -187,6 +187,7 @@ export function decodeWeaponEpfItem(
               weaponNum,
               palleteNum,
               idx,
+              row,
             );
 
             if (!useOriginalPalette) {

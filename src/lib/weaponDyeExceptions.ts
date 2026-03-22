@@ -3,10 +3,16 @@ import * as path from 'node:path';
 
 export type WeaponDyeWeaponType = 'sword' | 'spear' | 'fan';
 
+export interface WeaponDyeHeightRange {
+  startY: number;
+  endY: number;
+}
+
 export interface WeaponDyeExceptionEntry {
   paletteRows: number[];
   keepOriginalIndices: number[];
   forceDyeIndices: number[];
+  forceDyeHeightRanges: WeaponDyeHeightRange[];
   note?: string;
 }
 
@@ -49,6 +55,69 @@ function toSortedUniquePaletteRows(values: unknown) {
     .sort((left, right) => left - right);
 }
 
+function normalizeWeaponDyeHeightRanges(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const ranges = values
+    .map((value) => {
+      if (!value || typeof value !== 'object') {
+        return null;
+      }
+
+      const { startY, endY } = value as Partial<WeaponDyeHeightRange>;
+      const rawStartY = Number(startY);
+      const rawEndY = Number(endY);
+
+      if (!Number.isFinite(rawStartY) || !Number.isFinite(rawEndY)) {
+        return null;
+      }
+
+      const normalizedStartY = Math.max(0, Math.trunc(Math.min(rawStartY, rawEndY)));
+      const normalizedEndY = Math.max(0, Math.trunc(Math.max(rawStartY, rawEndY)));
+
+      return {
+        startY: normalizedStartY,
+        endY: normalizedEndY,
+      } satisfies WeaponDyeHeightRange;
+    })
+    .filter((value): value is WeaponDyeHeightRange => value !== null)
+    .sort((left, right) => {
+      if (left.startY !== right.startY) {
+        return left.startY - right.startY;
+      }
+
+      return left.endY - right.endY;
+    });
+
+  const merged: WeaponDyeHeightRange[] = [];
+
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+
+    if (!previous || range.startY > previous.endY + 1) {
+      merged.push({ ...range });
+      continue;
+    }
+
+    previous.endY = Math.max(previous.endY, range.endY);
+  }
+
+  return merged;
+}
+
+export function isWeaponDyeHeightForcedAtY(
+  ranges: WeaponDyeHeightRange[] | null | undefined,
+  y: number,
+) {
+  if (!Array.isArray(ranges) || !Number.isInteger(y) || y < 0) {
+    return false;
+  }
+
+  return ranges.some((range) => y >= range.startY && y <= range.endY);
+}
+
 export function createEmptyWeaponDyeExceptionFile(): WeaponDyeExceptionFile {
   return {
     version: 1,
@@ -66,6 +135,7 @@ function normalizeEntry(input?: Partial<WeaponDyeExceptionEntry> | null): Weapon
     paletteRows: toSortedUniquePaletteRows(input?.paletteRows),
     keepOriginalIndices: toSortedUniqueIndices(input?.keepOriginalIndices),
     forceDyeIndices: toSortedUniqueIndices(input?.forceDyeIndices),
+    forceDyeHeightRanges: normalizeWeaponDyeHeightRanges(input?.forceDyeHeightRanges),
     ...(typeof input?.note === 'string' && input.note.trim()
       ? { note: input.note.trim() }
       : {}),
@@ -130,6 +200,7 @@ export function applyWeaponDyeExceptionDecision(
   weaponNum: number,
   paletteRow: number,
   idx: number,
+  y: number,
 ) {
   const entry = loadWeaponDyeExceptions().weapons[weaponType]?.[String(weaponNum)];
 
@@ -139,6 +210,10 @@ export function applyWeaponDyeExceptionDecision(
 
   if (entry.paletteRows.length > 0 && !entry.paletteRows.includes(paletteRow)) {
     return fallbackUseOriginalPalette;
+  }
+
+  if (isWeaponDyeHeightForcedAtY(entry.forceDyeHeightRanges, y)) {
+    return false;
   }
 
   if (entry.keepOriginalIndices.includes(idx)) {
