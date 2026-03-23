@@ -94,37 +94,51 @@ function shouldUseOriginalWeaponPalette(
     return (
       (weaponNum !== 151 && idx < 22) ||
       (![0, 6].includes(palleteNum) && [143, 32, 35, 36].includes(idx)) ||
-      (palleteNum === 0 && weaponNum !== 62 && [42, 43, 44, 45, 46, 47].includes(idx)) ||
-      (weaponNum === 18 && palleteNum === 0 && [115, 116, 117, 118, 119].includes(idx)) ||
+      (palleteNum === 0 &&
+        weaponNum !== 62 &&
+        [42, 43, 44, 45, 46, 47].includes(idx)) ||
+      (weaponNum === 18 &&
+        palleteNum === 0 &&
+        [115, 116, 117, 118, 119].includes(idx)) ||
       ([14].includes(palleteNum) && [81, 82, 83, 84, 85].includes(idx)) ||
       (palleteNum === 5 && [88, 89, 90, 91, 92, 93, 120].includes(idx)) ||
-      ([6].includes(palleteNum) && [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(idx)) ||
-      ([6].includes(palleteNum) && [145, 146, 147, 148, 149, 150, 151].includes(idx)) ||
+      ([6].includes(palleteNum) &&
+        [152, 153, 154, 155, 225, 226, 227, 228, 229].includes(idx)) ||
+      ([6].includes(palleteNum) &&
+        [145, 146, 147, 148, 149, 150, 151].includes(idx)) ||
       [18, 20, 21].includes(idx) ||
-      (palleteNum === 11 && [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(idx)) ||
+      (palleteNum === 11 &&
+        [112, 200, 201, 202, 203, 204, 205, 206, 207].includes(idx)) ||
       (palleteNum === 14 && idx > 47 && idx < 64) ||
       (palleteNum === 14 && idx === 130) ||
-      ([6, 8, 10, 15].includes(palleteNum) && [89, 90, 91, 92, 93, 94].includes(idx)) ||
+      ([6, 8, 10, 15].includes(palleteNum) &&
+        [89, 90, 91, 92, 93, 94].includes(idx)) ||
       (palleteNum === 16 &&
         [126, 131].includes(weaponNum) &&
         [89, 90, 91, 92, 93, 94, 95].includes(idx)) ||
-      (palleteNum === 16 && [124, 129, 131].includes(weaponNum) && idx > 111 && idx < 120) ||
-      (palleteNum === 16 && [124, 125].includes(weaponNum) && idx > 87 && idx < 97)
+      (palleteNum === 16 &&
+        [124, 129, 131].includes(weaponNum) &&
+        idx > 111 &&
+        idx < 120) ||
+      (palleteNum === 16 &&
+        [124, 125].includes(weaponNum) &&
+        idx > 87 &&
+        idx < 97)
     );
   }
 
   if (type === 'fan') {
     return (
-      (([1, 2].includes(palleteNum) &&
+      ([1, 2].includes(palleteNum) &&
         ![117, 116, 115, 114, 106, 107, 108].includes(idx) &&
         idx > 55) ||
-        ([1, 2].includes(palleteNum) && [20, 22].includes(idx)) ||
-        idx < 17 ||
-        (palleteNum !== 0 && [143, 32, 35, 36].includes(idx)) ||
-        (weaponNum === 0 &&
-          palleteNum === 0 &&
-          [33, 34, 35, 36, 49, 50, 53].includes(idx)) ||
-        (palleteNum === 0 && [59, 62].includes(idx)))
+      ([1, 2].includes(palleteNum) && [20, 22].includes(idx)) ||
+      idx < 17 ||
+      (palleteNum !== 0 && [143, 32, 35, 36].includes(idx)) ||
+      (weaponNum === 0 &&
+        palleteNum === 0 &&
+        [33, 34, 35, 36, 49, 50, 53].includes(idx)) ||
+      (palleteNum === 0 && [59, 62].includes(idx))
     );
   }
 
@@ -191,7 +205,8 @@ export function decodeWeaponEpfItem(
             );
 
             if (!useOriginalPalette) {
-              ci = avc !== -1 ? map255toTri15(map255toTri8(ci) + avc) : ci & 0x7;
+              ci =
+                avc !== -1 ? map255toTri15(map255toTri8(ci) + avc) : ci & 0x7;
               realPalette = paletteCash;
             }
           }
@@ -260,13 +275,24 @@ export function decodeBodyEpfItem(
 
           if (
             ([17].includes(bodyNum) &&
-              ![31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16].includes(idx)) ||
+              ![
+                31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx)) ||
             ([126, 127].includes(bodyNum) &&
-              ![37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16].includes(idx)) ||
+              ![
+                37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20,
+                19, 18, 17, 16,
+              ].includes(idx)) ||
             ([115, 116].includes(bodyNum) &&
-              ![37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16].includes(idx)) ||
+              ![
+                37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20,
+                19, 18, 17, 16,
+              ].includes(idx)) ||
             ([70].includes(bodyNum) &&
-              ![81, 82, 81, 80, 37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16].includes(idx))
+              ![
+                81, 82, 81, 80, 37, 36, 34, 32, 31, 30, 29, 28, 27, 26, 25, 24,
+                23, 22, 21, 20, 19, 18, 17, 16,
+              ].includes(idx))
           ) {
             const ti = ci + (vc >= 255 ? 48 : 0);
             ci = (ti + (vc << 3)) & 0xff;

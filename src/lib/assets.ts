@@ -2,7 +2,19 @@ import * as path from 'node:path'; // ← 또는 'path'
 import * as fs from 'node:fs';
 import { EpfFile, PaletteSet, Tbl } from './types';
 
-const ASSETS_ROOT = path.resolve(path.join(process.cwd(), 'src', 'assets'));
+const ASSETS_ROOT =
+  process.env.NODE_ENV === 'production'
+    ? path.resolve(path.join(process.cwd(), 'src', 'assets'))
+    : path.resolve(
+        path.join(
+          process.cwd(),
+          '..',
+          'barambook',
+          'public',
+          'asset',
+          'render-json',
+        ),
+      );
 
 function loadJSON<T = any>(p: string): T {
   const buf = fs.readFileSync(p, 'utf-8');
