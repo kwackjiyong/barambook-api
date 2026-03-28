@@ -9,10 +9,22 @@ import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
 import type { BulkWriteResult } from 'mongodb';
 import { Model } from 'mongoose';
-import { CharacterVisibility } from '../member/character-visibility.schema';
 import { CharacterLike } from './character-like.schema';
 import { CharacterSearch } from './character-search.schema';
 import { User } from './user.schema';
+import { V2User } from './v2-user.schema';
+
+type SearchCharacter = {
+  Name: string;
+  ClanName?: string | null;
+  Class: string;
+  Nation: string;
+  Level: number;
+  Grade: number;
+  MaxHP?: number | null;
+  MaxMP?: number | null;
+  MSWID?: string;
+};
 
 export type UserSearchResult = {
   Name: string;
@@ -46,8 +58,8 @@ export class UserService implements OnModuleInit {
   constructor(
     @InjectModel('users', 'barambook')
     private readonly userModel: Model<User>,
-    @InjectModel('character_visibilities', 'barambook')
-    private readonly characterVisibilityModel: Model<CharacterVisibility>,
+    @InjectModel('v2_users', 'barambook')
+    private readonly v2UserModel: Model<V2User>,
     @InjectModel('character_likes', 'barambook')
     private readonly characterLikeModel: Model<CharacterLike>,
     @InjectModel('character_searches', 'barambook')
@@ -65,7 +77,9 @@ export class UserService implements OnModuleInit {
 
   async findUserSearchByName(name: string): Promise<User[]> {
     const keyword = (name ?? '').trim();
-    if (!keyword || keyword.length < 2) return [];
+    if (!keyword || keyword.length < 2) {
+      return [];
+    }
 
     return this.userModel
       .find({ Name: { $regex: keyword, $options: 'i' } })
@@ -87,45 +101,24 @@ export class UserService implements OnModuleInit {
 
     await this.recordCharacterSearch(user.Name, ipAddress);
 
-    const [users, hiddenCharacters] = await Promise.all([
-      this.userModel
-        .find({ MSWID: user.MSWID })
-        .sort({ Grade: -1, Level: -1, Name: 1 })
-        .limit(4)
-        .lean()
-        .exec(),
-      this.characterVisibilityModel
-        .find({
-          MSWID: user.MSWID,
-          isHidden: true,
-        })
-        .select({ _id: 0, Name: 1 })
-        .lean()
-        .exec(),
-    ]);
+    const users = await this.userModel
+      .find({ MSWID: user.MSWID })
+      .sort({ Grade: -1, Level: -1, Name: 1 })
+      .lean()
+      .exec();
 
     const likeCountsByName = await this.getLikeCountsByNames(
       users.map((character) => character.Name),
     );
-    const hiddenCharacterNames = new Set(
-      hiddenCharacters.map((character) => character.Name),
-    );
 
     return users.map((character) =>
-      this.toUserSearchResult(
-        character,
-        hiddenCharacterNames.has(character.Name),
-        likeCountsByName.get(character.Name) ?? 0,
-      ),
+      this.toUserSearchResult(character, likeCountsByName.get(character.Name) ?? 0),
     );
   }
 
   async findSingleUserByName(name: string, ipAddress: string): Promise<UserSearchResult> {
     const trimmedName = (name ?? '').trim();
-    const character = await this.userModel
-      .findOne({ Name: trimmedName })
-      .lean()
-      .exec();
+    const character = await this.userModel.findOne({ Name: trimmedName }).lean().exec();
 
     if (!character) {
       throw new NotFoundException(`User not found. ${name}`);
@@ -133,23 +126,9 @@ export class UserService implements OnModuleInit {
 
     await this.recordCharacterSearch(character.Name, ipAddress);
 
-    const [hiddenCharacter, likeCount] = await Promise.all([
-      this.characterVisibilityModel
-        .findOne({
-          MSWID: character.MSWID,
-          Name: character.Name,
-          isHidden: true,
-        })
-        .select({ _id: 0, Name: 1 })
-        .lean()
-        .exec(),
-      this.getLikeCountForName(character.Name),
-    ]);
-
     return this.toUserSearchResult(
       character,
-      Boolean(hiddenCharacter),
-      likeCount,
+      await this.getLikeCountForName(character.Name),
     );
   }
 
@@ -160,7 +139,7 @@ export class UserService implements OnModuleInit {
       return [];
     }
 
-    const users = await this.userModel
+    const users = await this.v2UserModel
       .find({ ClanName: trimmedName })
       .sort({ Grade: -1, Level: -1, Name: 1 })
       .lean()
@@ -170,23 +149,12 @@ export class UserService implements OnModuleInit {
       return [];
     }
 
-    const hiddenCharacters = await this.characterVisibilityModel
-      .find({
-        Name: { $in: users.map((character) => character.Name) },
-        isHidden: true,
-      })
-      .select({ _id: 0, Name: 1 })
-      .lean()
-      .exec();
-
-    const hiddenCharacterNames = new Set(hiddenCharacters.map((character) => character.Name));
-    const visibleUsers = users.filter((character) => !hiddenCharacterNames.has(character.Name));
     const likeCountsByName = await this.getLikeCountsByNames(
-      visibleUsers.map((character) => character.Name),
+      users.map((character) => character.Name),
     );
 
-    return visibleUsers.map((character) =>
-      this.toUserSearchResult(character, false, likeCountsByName.get(character.Name) ?? 0),
+    return users.map((character) =>
+      this.toUserSearchResult(character, likeCountsByName.get(character.Name) ?? 0),
     );
   }
 
@@ -210,9 +178,7 @@ export class UserService implements OnModuleInit {
       });
     } catch (error) {
       if (this.isDuplicateKeyError(error)) {
-        throw new ConflictException(
-          '같은 IP에서는 하루에 한 번만 인품을 남길 수 있습니다.',
-        );
+        throw new ConflictException('Only one like per IP is allowed each day.');
       }
 
       throw error;
@@ -249,37 +215,26 @@ export class UserService implements OnModuleInit {
     }
 
     const names = rankingRows.map((row) => row._id);
-    const [users, hiddenCharacters] = await Promise.all([
-      this.userModel
-        .find({ Name: { $in: names } })
-        .select({
-          _id: 0,
-          Name: 1,
-          ClanName: 1,
-          Class: 1,
-          Nation: 1,
-          Level: 1,
-          Grade: 1,
-          MaxHP: 1,
-          MaxMP: 1,
-        })
-        .lean()
-        .exec(),
-      this.characterVisibilityModel
-        .find({
-          Name: { $in: names },
-          isHidden: true,
-        })
-        .select({ _id: 0, Name: 1 })
-        .lean()
-        .exec(),
-    ]);
+    const users = await this.userModel
+      .find({ Name: { $in: names } })
+      .select({
+        _id: 0,
+        Name: 1,
+        ClanName: 1,
+        Class: 1,
+        Nation: 1,
+        Level: 1,
+        Grade: 1,
+        MaxHP: 1,
+        MaxMP: 1,
+      })
+      .lean()
+      .exec();
 
     const userByName = new Map(users.map((user) => [user.Name, user]));
-    const hiddenNames = new Set(hiddenCharacters.map((item) => item.Name));
 
     return rankingRows
-      .filter((row) => userByName.has(row._id) && !hiddenNames.has(row._id))
+      .filter((row) => userByName.has(row._id))
       .slice(0, limit)
       .map((row) => {
         const user = userByName.get(row._id)!;
@@ -307,9 +262,23 @@ export class UserService implements OnModuleInit {
     return this.characterLikeModel.countDocuments({ Name: trimmedName }).exec();
   }
 
-  async upsertUsers(userDatas: Array<User>): Promise<BulkWriteResult> {
-    return await this.userModel.bulkWrite(
-      userDatas.map((record) => ({
+  async upsertV2Users(userDatas: Array<V2User>): Promise<BulkWriteResult> {
+    const records = userDatas.filter(
+      (record) => typeof record?.Name === 'string' && record.Name.trim().length > 0,
+    );
+
+    if (records.length === 0) {
+      return {
+        matchedCount: 0,
+        modifiedCount: 0,
+        upsertedCount: 0,
+        insertedCount: 0,
+        deletedCount: 0,
+      } as BulkWriteResult;
+    }
+
+    return this.v2UserModel.bulkWrite(
+      records.map((record) => ({
         updateOne: {
           filter: { Name: record.Name },
           update: { $set: record },
@@ -319,37 +288,18 @@ export class UserService implements OnModuleInit {
     );
   }
 
-  private toUserSearchResult(
-    character: User,
-    isHidden: boolean,
-    likeCount: number,
-  ): UserSearchResult {
-    if (!isHidden) {
-      return {
-        Name: character.Name,
-        ClanName: character.ClanName ?? null,
-        Class: character.Class,
-        Nation: character.Nation,
-        Level: character.Level,
-        Grade: character.Grade,
-        MaxHP: character.MaxHP,
-        MaxMP: character.MaxMP,
-        likeCount,
-        isHidden: false,
-      };
-    }
-
+  private toUserSearchResult(character: SearchCharacter, likeCount: number): UserSearchResult {
     return {
-      Name: '숨김 캐릭터',
-      ClanName: null,
-      Class: '-',
-      Nation: '-',
-      Level: 0,
-      Grade: 0,
-      MaxHP: null,
-      MaxMP: null,
+      Name: character.Name,
+      ClanName: character.ClanName ?? null,
+      Class: character.Class,
+      Nation: character.Nation,
+      Level: character.Level,
+      Grade: character.Grade,
+      MaxHP: character.MaxHP ?? null,
+      MaxMP: character.MaxMP ?? null,
       likeCount,
-      isHidden: true,
+      isHidden: false,
     };
   }
 

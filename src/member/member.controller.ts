@@ -13,8 +13,6 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { LoginDto } from './dto/login.dto';
-import { SignUpDto } from './dto/sign-up.dto';
-import { UpdateCharacterVisibilityDto } from './dto/update-character-visibility.dto';
 import { UpdateRepresentativeCharacterDto } from './dto/update-representative-character.dto';
 import { MemberSessionGuard } from './member-session.guard';
 import { Member } from './member.schema';
@@ -130,35 +128,13 @@ export class MemberController {
   }
 
   @Patch('/character-visibility')
-  @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
-  async updateCharacterVisibility(
-    @Req() req: AuthenticatedRequest,
-    @Body(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    )
-    dto: UpdateCharacterVisibilityDto,
-  ) {
-    const member = req.member as Member;
-    return this.memberService.updateCharacterVisibility(member, dto);
+  async updateCharacterVisibility() {
+    return this.memberService.updateCharacterVisibility();
   }
 
   @Post('/signup')
-  @HttpCode(HttpStatus.CREATED)
-  async signUp(
-    @Body(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    )
-    dto: SignUpDto,
-  ) {
-    return this.memberService.signUp(dto);
+  async signUp() {
+    return this.memberService.signUp();
   }
 }
