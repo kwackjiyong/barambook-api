@@ -44,6 +44,7 @@ export interface ChannelParticipant {
   displayName: string;
   likeCount: number;
   isGuest: boolean;
+  isJumping?: boolean;
   x: number;
   y: number;
   direction: ChannelDirection;
@@ -81,6 +82,7 @@ interface MovePayload {
   dx?: number;
   dy?: number;
   direction?: ChannelDirection;
+  isJumping?: boolean;
 }
 
 @Injectable()
@@ -209,19 +211,22 @@ export class ChannelService {
       payload.direction,
       current.direction,
     );
+    const isJumping = payload.isJumping === true;
     const now = Date.now();
     const lastMovedAt = this.lastMovedAt.get(socketId) ?? 0;
     const isMoveRequested = dx !== 0 || dy !== 0;
     const isDirectionChanged = direction !== current.direction;
+    const isJumpStateChanged = isJumping !== (current.isJumping === true);
 
     if (now - lastMovedAt < ChannelService.MOVE_COOLDOWN_MS) {
-      if (!isDirectionChanged) {
+      if (!isDirectionChanged && !isJumpStateChanged) {
         return null;
       }
 
       const rotatedParticipant: ChannelParticipant = {
         ...current,
         direction,
+        isJumping,
       };
       this.participants.set(socketId, rotatedParticipant);
       return rotatedParticipant;
@@ -231,26 +236,28 @@ export class ChannelService {
     const nextY = this.clamp(current.y + dy, 0, ChannelService.MAX_POSITION_Y);
 
     if (!isMoveRequested) {
-      if (!isDirectionChanged) {
+      if (!isDirectionChanged && !isJumpStateChanged) {
         return null;
       }
 
       const rotatedParticipant: ChannelParticipant = {
         ...current,
         direction,
+        isJumping,
       };
       this.participants.set(socketId, rotatedParticipant);
       return rotatedParticipant;
     }
 
     if (!this.isWalkablePosition(nextX, nextY)) {
-      if (!isDirectionChanged) {
+      if (!isDirectionChanged && !isJumpStateChanged) {
         return null;
       }
 
       const rotatedParticipant: ChannelParticipant = {
         ...current,
         direction,
+        isJumping,
       };
       this.participants.set(socketId, rotatedParticipant);
       return rotatedParticipant;
@@ -261,6 +268,7 @@ export class ChannelService {
       x: nextX,
       y: nextY,
       direction,
+      isJumping,
     };
 
     this.participants.set(socketId, nextParticipant);

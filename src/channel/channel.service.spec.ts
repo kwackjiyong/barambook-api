@@ -109,6 +109,40 @@ describe('ChannelService monster spawn limit', () => {
     expect((service as any).monsters.has(hitMonster.id)).toBe(false);
     expect((service as any).monsters.has(farMonster.id)).toBe(true);
   });
+
+  it('stores jump state on participant movement updates', () => {
+    const participant = {
+      id: 'socket-1',
+      accountId: 'tester',
+      displayName: 'tester-character',
+      likeCount: 0,
+      isGuest: false,
+      x: 70 * 24,
+      y: 122 * 24,
+      direction: 'down',
+      connectedAt: new Date().toISOString(),
+    } as any;
+
+    (service as any).participants.set(participant.id, participant);
+
+    const jumped = service.moveParticipant(participant.id, {
+      dx: 0,
+      dy: 0,
+      direction: 'down',
+      isJumping: true,
+    });
+    const grounded = service.moveParticipant(participant.id, {
+      dx: 0,
+      dy: 0,
+      direction: 'down',
+      isJumping: false,
+    });
+
+    expect(jumped?.isJumping).toBe(true);
+    expect(jumped?.x).toBe(participant.x);
+    expect(jumped?.y).toBe(participant.y);
+    expect(grounded?.isJumping).toBe(false);
+  });
 });
 
 function createMember(accountId: string, representativeCharacterName?: string) {
