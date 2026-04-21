@@ -2,24 +2,15 @@ import {
   Controller,
   Get,
   HttpStatus,
-  Param,
   Post,
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { UserService } from './user.service';
 
 const SEARCH_DISABLED_MESSAGE = 'user search features are disabled';
 
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
-
-  @Get('/channel-follow/:name')
-  findChannelFollowUser(@Param('name') name: string) {
-    return this.userService.findChannelFollowUserByName(name);
-  }
-
   @Get('/')
   legacyUserSearch(@Res() res: Response) {
     this.sendGone(res);

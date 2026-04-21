@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CharacterLikeSchema } from './character-like.schema';
 import { UserController } from './user.controller';
-import { UserSchema } from './user.schema';
 import { UserService } from './user.service';
 
 @Module({
@@ -12,10 +11,6 @@ import { UserService } from './user.service';
         {
           name: 'character_likes',
           schema: CharacterLikeSchema,
-        },
-        {
-          name: 'users',
-          schema: UserSchema,
         },
       ],
       'barambook',
