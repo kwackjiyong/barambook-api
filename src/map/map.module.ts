@@ -7,6 +7,8 @@ import { MapSchema } from './origin/map.schema';
 import { MapPortalSchema } from './portal/map.schema';
 import { MapController } from './map.controller';
 import { MapCodeNameSchema } from './code-name/map.schema';
+import { MapNaviService } from './navi/navi.service';
+import { WorldMapSchema } from './world-map/map.schema';
 
 @Module({
   imports: [
@@ -22,8 +24,12 @@ import { MapCodeNameSchema } from './code-name/map.schema';
       [{ name: 'map_code_names', schema: MapCodeNameSchema }],
       'barambook',
     ),
+    MongooseModule.forFeature(
+      [{ name: 'world_map', schema: WorldMapSchema }],
+      'barambook',
+    ),
   ],
-  providers: [MapService, MapPortalService, MapCodeNameService],
+  providers: [MapService, MapPortalService, MapCodeNameService, MapNaviService],
   controllers: [MapController],
 })
 export class MapModule {}
