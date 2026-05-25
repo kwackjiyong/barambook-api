@@ -6,6 +6,7 @@ import {
   decodeEpfItem,
   decodeWeaponEpfItem,
 } from './epfDecoder';
+import { cyclePalette } from './paletteAnimation';
 import { RenderParams } from './types';
 
 type Part4 = 'head' | 'body' | 'weapon' | 'shield';
@@ -29,17 +30,26 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
   const width = params.width ?? defaultWH;
   const height = params.height ?? defaultWH;
   const num = params.frame | 0;
+  const colorTick = params.colorTick ?? 0;
 
   const rowHead = TBL.head[params.head] ?? { _u1: 0, _u2: 0, _u3: 0 };
   const rowBody = TBL.body[params.body] ?? { _u1: 0, _u2: 0, _u3: 0 };
   const rowShld = TBL.shield[params.shield] ?? { _u1: 0, _u2: 0, _u3: -1 };
 
-  const palHead = PAL.head[rowHead._u2] ?? PAL.head[0];
-  const palBody =
+  const palHead = cyclePalette(
+    PAL.head[rowHead._u2] ?? PAL.head[0],
+    colorTick,
+  );
+  const palBody = cyclePalette(
     params.bodyc >= 255
       ? PAL.body[113 + params.bodyc / 255]
-      : (PAL.body[rowBody._u2] ?? PAL.body[0]);
-  const palShld = PAL.shield[rowShld._u2] ?? PAL.shield[0];
+      : (PAL.body[rowBody._u2] ?? PAL.body[0]),
+    colorTick,
+  );
+  const palShld = cyclePalette(
+    PAL.shield[rowShld._u2] ?? PAL.shield[0],
+    colorTick,
+  );
 
   const bitmaps = [] as ReturnType<typeof decodeEpfItem>[];
 
@@ -97,7 +107,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       const palleteNum = params.weaponc / 255 - 1;
       if (w >= 0 && w < 10000) {
         const rowSword = TBL.sword[w] ?? { _u1: 0, _u2: 0, _u3: 0 };
-        const palSword = PAL.sword[rowSword._u2] ?? PAL.sword[0];
+        const palSword = cyclePalette(
+          PAL.sword[rowSword._u2] ?? PAL.sword[0],
+          colorTick,
+        );
         if (num >= 12 && num <= 31) {
           const idx = rowSword._u3 + (num - 12);
           // decodeEpfItem(EPF.sword.items[idx], palSword, params.weaponc | 0),
@@ -118,8 +131,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       } else if (w >= 10000 && w < 20000) {
         const w2 = w - 10000;
         const rowSpear = TBL.spear[w2] ?? { _u1: 0, _u2: 0, _u3: 0 };
-        // const palSpear = PAL.spear[rowSpear._u2] ?? PAL.spear[0];
-        const palSpear = PAL.spear[rowSpear._u2] ?? PAL.spear[0];
+        const palSpear = cyclePalette(
+          PAL.spear[rowSpear._u2] ?? PAL.spear[0],
+          colorTick,
+        );
         if (num >= 32 && num <= 51) {
           const idx = rowSpear._u3 + (num - 32);
           // decodeEpfItem(EPF.spear.items[idx], palSpear, params.weaponc | 0),
@@ -140,7 +155,10 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       } else if (w >= 30000 && w < 40000) {
         const w2 = w - 30000;
         const rowFan = TBL.fan[w2] ?? { _u1: 0, _u2: 0, _u3: 0 };
-        const palFan = PAL.fan[rowFan._u2] ?? PAL.fan[0];
+        const palFan = cyclePalette(
+          PAL.fan[rowFan._u2] ?? PAL.fan[0],
+          colorTick,
+        );
         if (num >= 12 && num <= 31) {
           const idx = rowFan._u3 + (num - 13);
           // decodeEpfItem(EPF.fan.items[idx], palFan, params.weaponc | 0),

@@ -48,6 +48,9 @@ export interface RenderParams {
   width?: number;
   height?: number;
   isAction?: boolean;
+  // Tick index for PAL-driven color cycling. Each tick rotates colors within
+  // every animation range by 1 position. Defaults to 0 (no rotation).
+  colorTick?: number;
 }
 
 export interface DecodedBitmap {
