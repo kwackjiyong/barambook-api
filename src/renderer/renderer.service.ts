@@ -32,71 +32,71 @@ export class RendererService {
 
   async pngRender(params: RenderParams): Promise<Buffer[]> {
     // 무기 염색 애니메이션 계열인 경우 (weaponc = 255/510/765)
+    // 총 프레임 = 32 * COLOR_TICK_HOLD. 색상 관련(weaponAnic, colorTick)은
+    // tick = floor(x / HOLD) 으로 묶어서 HOLD 프레임마다 한 번 진행되고,
+    // 액션 프레임 선택(x % 2, x % 4) 은 그대로 x 를 써서 원속도 유지.
     if ([255, 510, 765].includes(params.weaponc)) {
+      const dyeLen = 32 * COLOR_TICK_HOLD;
       if (params.isAction) {
         if (ACTION_FRAMES_3PNG.includes(params.frame)) {
           return Promise.all(
-            Array.from({ length: 32 }, (_, i) => i)
+            Array.from({ length: dyeLen }, (_, i) => i)
               .reverse()
-              .map((x) =>
-                x % 2 == 0
-                  ? renderToPng({
-                      ...params,
-                      weaponAnic: x,
-                      colorTick: Math.floor(x / COLOR_TICK_HOLD),
-                    })
+              .map((x) => {
+                const tick = Math.floor(x / COLOR_TICK_HOLD);
+                return x % 2 == 0
+                  ? renderToPng({ ...params, weaponAnic: tick, colorTick: tick })
                   : renderToPng({
                       ...params,
-                      weaponAnic: x,
-                      colorTick: Math.floor(x / COLOR_TICK_HOLD),
+                      weaponAnic: tick,
+                      colorTick: tick,
                       frame: params.frame + (x % 4 === 1 ? 1 : 2),
-                    }),
-              ),
+                    });
+              }),
           );
         } else if (ACTION_FRAMES_2PNG.includes(params.frame)) {
           return Promise.all(
-            Array.from({ length: 32 }, (_, i) => i)
+            Array.from({ length: dyeLen }, (_, i) => i)
               .reverse()
-              .map((x) =>
-                x % 2 == 0
-                  ? renderToPng({
-                      ...params,
-                      weaponAnic: x,
-                      colorTick: Math.floor(x / COLOR_TICK_HOLD),
-                    })
+              .map((x) => {
+                const tick = Math.floor(x / COLOR_TICK_HOLD);
+                return x % 2 == 0
+                  ? renderToPng({ ...params, weaponAnic: tick, colorTick: tick })
                   : renderToPng({
                       ...params,
-                      weaponAnic: x,
-                      colorTick: Math.floor(x / COLOR_TICK_HOLD),
+                      weaponAnic: tick,
+                      colorTick: tick,
                       frame: params.frame - 1,
-                    }),
-              ),
+                    });
+              }),
           );
         } else if (ACTION_FRAMES_KITE.includes(params.frame)) {
           return Promise.all(
-            Array.from({ length: 32 }, (_, i) => i)
+            Array.from({ length: dyeLen }, (_, i) => i)
               .reverse()
-              .map((x) =>
-                renderToPng({
+              .map((x) => {
+                const tick = Math.floor(x / COLOR_TICK_HOLD);
+                return renderToPng({
                   ...params,
-                  weaponAnic: x,
-                  colorTick: Math.floor(x / COLOR_TICK_HOLD),
+                  weaponAnic: tick,
+                  colorTick: tick,
                   frame: 118 - (x % 4),
-                }),
-              ),
+                });
+              }),
           );
         }
       }
       return Promise.all(
-        Array.from({ length: 32 }, (_, i) => i)
+        Array.from({ length: dyeLen }, (_, i) => i)
           .reverse()
-          .map((x) =>
-            renderToPng({
+          .map((x) => {
+            const tick = Math.floor(x / COLOR_TICK_HOLD);
+            return renderToPng({
               ...params,
-              weaponAnic: x,
-              colorTick: Math.floor(x / COLOR_TICK_HOLD),
-            }),
-          ),
+              weaponAnic: tick,
+              colorTick: tick,
+            });
+          }),
       );
     }
 
