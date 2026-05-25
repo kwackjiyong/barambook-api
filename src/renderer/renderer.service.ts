@@ -13,7 +13,7 @@ const ACTION_FRAMES_KITE = [115, 116, 117, 118];
 // Color cycling holds each tick for N output frames. Higher = slower color
 // transition. Frame-based weapon/action animations stay at their original
 // speed because they advance once per output frame regardless.
-const COLOR_TICK_HOLD = 4;
+const COLOR_TICK_HOLD = 3;
 
 function gcd(a: number, b: number): number {
   let x = Math.abs(a);
