@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Injectable } from '@nestjs/common';
 import { renderToPng } from '../lib/renderer';
 import { getRenderColorPeriod } from '../lib/paletteAnimation';
@@ -15,7 +13,7 @@ const ACTION_FRAMES_KITE = [115, 116, 117, 118];
 // Color cycling holds each tick for N output frames. Higher = slower color
 // transition. Frame-based weapon/action animations stay at their original
 // speed because they advance once per output frame regardless.
-const COLOR_TICK_HOLD = 2;
+const COLOR_TICK_HOLD = 4;
 
 function gcd(a: number, b: number): number {
   let x = Math.abs(a);
@@ -57,7 +55,11 @@ export class RendererService {
               .map((x) => {
                 const tick = Math.floor(x / COLOR_TICK_HOLD);
                 return x % 2 == 0
-                  ? renderToPng({ ...params, weaponAnic: tick, colorTick: tick })
+                  ? renderToPng({
+                      ...params,
+                      weaponAnic: tick,
+                      colorTick: tick,
+                    })
                   : renderToPng({
                       ...params,
                       weaponAnic: tick,
@@ -73,7 +75,11 @@ export class RendererService {
               .map((x) => {
                 const tick = Math.floor(x / COLOR_TICK_HOLD);
                 return x % 2 == 0
-                  ? renderToPng({ ...params, weaponAnic: tick, colorTick: tick })
+                  ? renderToPng({
+                      ...params,
+                      weaponAnic: tick,
+                      colorTick: tick,
+                    })
                   : renderToPng({
                       ...params,
                       weaponAnic: tick,
@@ -123,9 +129,7 @@ export class RendererService {
       spriteFrameAt: (i: number) => number,
     ) => {
       const total =
-        colorPeriod > 1
-          ? lcm(loopLen, colorPeriod * COLOR_TICK_HOLD)
-          : loopLen;
+        colorPeriod > 1 ? lcm(loopLen, colorPeriod * COLOR_TICK_HOLD) : loopLen;
       return Promise.all(
         Array.from({ length: total }, (_, i) =>
           renderToPng({
@@ -164,7 +168,10 @@ export class RendererService {
       const total = colorPeriod * COLOR_TICK_HOLD;
       return Promise.all(
         Array.from({ length: total }, (_, i) =>
-          renderToPng({ ...params, colorTick: Math.floor(i / COLOR_TICK_HOLD) }),
+          renderToPng({
+            ...params,
+            colorTick: Math.floor(i / COLOR_TICK_HOLD),
+          }),
         ),
       );
     }
