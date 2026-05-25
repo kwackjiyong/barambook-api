@@ -18,7 +18,12 @@ export interface Rgb {
   g: number;
   b: number;
 }
-export type PaletteVariant = Rgb[]; // length = 256
+
+export interface PaletteVariant {
+  colors: Rgb[]; // length = 256
+  animationColorCount: number; // 0 when no color cycling
+  animationOffsets: number[]; // raw uint16 LE shorts from .pal (length == animationColorCount)
+}
 export type PaletteSet = PaletteVariant[]; // variants
 
 export interface TblRow {

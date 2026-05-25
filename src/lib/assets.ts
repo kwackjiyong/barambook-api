@@ -1,6 +1,6 @@
 import * as path from 'node:path'; // ← 또는 'path'
 import * as fs from 'node:fs';
-import { EpfFile, PaletteSet, Tbl } from './types';
+import { EpfFile, PaletteSet, PaletteVariant, Rgb, Tbl } from './types';
 
 const ASSETS_ROOT = path.resolve(path.join(process.cwd(), 'src', 'assets'));
 
@@ -11,6 +11,33 @@ function loadJSON<T = any>(p: string): T {
 
 export function assetPath(...p: string[]) {
   return path.join(ASSETS_ROOT, ...p);
+}
+
+// Accepts either legacy Rgb[][] or new { colors, animationColorCount, animationOffsets }[].
+// Legacy entries are normalized with no animation metadata.
+function loadPaletteSet(filePath: string): PaletteSet {
+  const raw = loadJSON<unknown>(filePath);
+  if (!Array.isArray(raw)) {
+    throw new Error(`Palette file is not an array: ${filePath}`);
+  }
+  return raw.map((entry, i): PaletteVariant => {
+    if (Array.isArray(entry)) {
+      return {
+        colors: entry as Rgb[],
+        animationColorCount: 0,
+        animationOffsets: [],
+      };
+    }
+    const e = entry as Partial<PaletteVariant>;
+    if (!Array.isArray(e.colors)) {
+      throw new Error(`Palette[${i}] missing colors in ${filePath}`);
+    }
+    return {
+      colors: e.colors,
+      animationColorCount: e.animationColorCount ?? 0,
+      animationOffsets: e.animationOffsets ?? [],
+    };
+  });
 }
 
 // EPF files
@@ -28,14 +55,14 @@ export const EPF = {
 
 // Palette sets
 export const PAL = {
-  head: loadJSON<PaletteSet>(assetPath('pal', 'head_pal.json')),
-  body: loadJSON<PaletteSet>(assetPath('pal', 'body_pal.json')),
-  weapon: loadJSON<PaletteSet>(assetPath('pal', 'weapon_pal.json')), // 무기 염색용
-  sword: loadJSON<PaletteSet>(assetPath('pal', 'sword_pal.json')),
-  spear: loadJSON<PaletteSet>(assetPath('pal', 'spear_pal.json')),
-  shield: loadJSON<PaletteSet>(assetPath('pal', 'shield_pal.json')),
-  emotion: loadJSON<PaletteSet>(assetPath('pal', 'emotion_pal.json')),
-  fan: loadJSON<PaletteSet>(assetPath('pal', 'fan_pal.json')),
+  head: loadPaletteSet(assetPath('pal', 'head_pal.json')),
+  body: loadPaletteSet(assetPath('pal', 'body_pal.json')),
+  weapon: loadPaletteSet(assetPath('pal', 'weapon_pal.json')), // 무기 염색용
+  sword: loadPaletteSet(assetPath('pal', 'sword_pal.json')),
+  spear: loadPaletteSet(assetPath('pal', 'spear_pal.json')),
+  shield: loadPaletteSet(assetPath('pal', 'shield_pal.json')),
+  emotion: loadPaletteSet(assetPath('pal', 'emotion_pal.json')),
+  fan: loadPaletteSet(assetPath('pal', 'fan_pal.json')),
 };
 
 // Table mapping (sequence -> base frame offset)

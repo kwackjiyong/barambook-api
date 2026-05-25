@@ -55,7 +55,7 @@ export function decodeEpfItem(
             ci = (ci + (vc << 3)) & 0xff;
           }
 
-          const c = palette[ci] ?? { r: 0, g: 0, b: 0 };
+          const c = palette.colors[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
           bitmap.rgba[off] = c.r;
           bitmap.rgba[off + 1] = c.g;
@@ -215,7 +215,7 @@ export function decodeWeaponEpfItem(
             ci = (ci + (rc << 3)) & 0xff;
           }
 
-          const c = realPalette[ci] ?? { r: 0, g: 0, b: 0 };
+          const c = realPalette.colors[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
           bitmap.rgba[off] = c.r;
           bitmap.rgba[off + 1] = c.g;
@@ -300,7 +300,7 @@ export function decodeBodyEpfItem(
             ci = (ci + (vc << 3)) & 0xff;
           }
 
-          const c = palette[ci] ?? { r: 0, g: 0, b: 0 };
+          const c = palette.colors[ci] ?? { r: 0, g: 0, b: 0 };
           const off = (row * w + (col + k)) * 4;
           bitmap.rgba[off] = c.r;
           bitmap.rgba[off + 1] = c.g;
