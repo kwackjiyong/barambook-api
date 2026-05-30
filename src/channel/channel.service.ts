@@ -18,6 +18,22 @@ export interface ChannelMonster {
   direction: ChannelDirection;
   spawnedAt: string;
   expiresAt: string;
+  /**
+   * 자동 개체수 유지(야생 몬스터) 대상이면 프리셋 식별자가 채워진다.
+   * 운영자가 수동으로 소환한 몬스터에는 존재하지 않는다.
+   */
+  presetKey?: string;
+}
+
+/**
+ * 맵에 주기적으로 뿌릴 야생 몬스터 프리셋.
+ * count 만큼 개체수가 유지되도록 부족분을 자동으로 채운다.
+ */
+interface MonsterPopulationPreset {
+  name: string;
+  renderId: number;
+  renderColor: number;
+  count: number;
 }
 
 export interface ChannelRenderState {
@@ -110,14 +126,32 @@ export class ChannelService {
   private static readonly GUEST_CHAT_COOLDOWN_MS = 1000;
   private static readonly CHAT_BUBBLE_LIFETIME_MS = 6 * 1000;
   private static readonly MONSTER_LIFETIME_MS = 30 * 1000;
-  private static readonly MONSTER_MOVE_INTERVAL_MS = 1200;
-  private static readonly MONSTER_MOVE_STAGGER_MS = 900;
-  private static readonly MONSTER_AUTO_SPAWN_ENABLED = false;
-  private static readonly MONSTER_AUTO_SPAWN_INTERVAL_MS = 5 * 1000;
-  private static readonly MONSTER_AUTO_SPAWN_TILE_X = 70;
-  private static readonly MONSTER_AUTO_SPAWN_TILE_Y = 122;
+  // 한 타일 이동 간격(클수록 느리게 움직인다).
+  private static readonly MONSTER_MOVE_INTERVAL_MS = 2000;
+  private static readonly MONSTER_MOVE_STAGGER_MS = 1800;
   private static readonly MONSTER_SPAWN_OPERATOR_NAME = '바람비전';
   private static readonly MAX_MONSTERS = 120;
+  // 야생 몬스터 개체수 유지 설정
+  private static readonly MONSTER_POPULATION_REFILL_INTERVAL_MS = 500;
+  private static readonly MONSTER_POPULATION_SPAWN_BATCH = 6;
+  private static readonly MONSTER_POPULATION_SPAWN_MAX_ATTEMPTS = 80;
+  // 개체수 유지 몬스터는 만료되지 않는 영구 객체로 취급한다.
+  private static readonly PERSISTENT_MONSTER_EXPIRES_AT =
+    '2099-12-31T23:59:59.999Z';
+  private static readonly MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
+    [
+      { name: '토끼', renderId: 21, renderColor: 11, count: 10 },
+      { name: '강아지', renderId: 18, renderColor: 5, count: 1 },
+      { name: '새끼돼지', renderId: 20, renderColor: 9, count: 1 },
+      { name: '돼지', renderId: 19, renderColor: 9, count: 1 },
+      { name: '다람쥐', renderId: 25, renderColor: 5, count: 10 },
+      { name: '소', renderId: 27, renderColor: 5, count: 2 },
+      { name: '닭', renderId: 28, renderColor: 3, count: 2 },
+      { name: '누렁이', renderId: 103, renderColor: 5, count: 1 },
+      { name: '백호', renderId: 216, renderColor: 0, count: 1 },
+      { name: '멍구', renderId: 345, renderColor: 0, count: 1 },
+      { name: '나비', renderId: 434, renderColor: 0, count: 1 },
+    ];
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
   private static readonly ATTACK_HIT_FORWARD_RANGE =
@@ -144,7 +178,7 @@ export class ChannelService {
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
   private readonly lastMonsterMovedAtById = new Map<string, number>();
-  private lastAutoMonsterSpawnedAt = 0;
+  private lastPopulationRefillAt = 0;
 
   addParticipant(
     member: Member,
@@ -430,6 +464,10 @@ export class ChannelService {
     const removed: ChannelMonster[] = [];
 
     for (const monster of this.monsters.values()) {
+      if (this.isPersistentMonster(monster)) {
+        continue;
+      }
+
       const expiresAt = new Date(monster.expiresAt).getTime();
       if (expiresAt <= now) {
         this.detachMonster(monster.id);
@@ -440,24 +478,53 @@ export class ChannelService {
     return removed;
   }
 
-  autoSpawnMonster(now = Date.now()): ChannelMonster | null {
+  /**
+   * 야생 몬스터 개체수를 프리셋에 정의된 수만큼 유지한다.
+   * 일정 주기마다 부족한 종류를 맵상의 이동 가능한 임의 위치에 채워 넣고,
+   * 한 번에 너무 많이 몰려서 생성되지 않도록 배치 단위로 나눠 스폰한다.
+   * @returns 이번 호출에서 새로 생성된 몬스터 목록
+   */
+  maintainMonsterPopulation(now = Date.now()): ChannelMonster[] {
     this.pruneExpiredMonsters(now);
 
-    if (!ChannelService.MONSTER_AUTO_SPAWN_ENABLED) {
-      return null;
-    }
-
     if (
-      this.monsters.size >= ChannelService.MAX_MONSTERS ||
-      now - this.lastAutoMonsterSpawnedAt <
-        ChannelService.MONSTER_AUTO_SPAWN_INTERVAL_MS
+      now - this.lastPopulationRefillAt <
+      ChannelService.MONSTER_POPULATION_REFILL_INTERVAL_MS
     ) {
-      return null;
+      return [];
     }
 
-    const monster = this.createMonster(this.getAutoSpawnMonsterPosition(), undefined, now);
-    this.lastAutoMonsterSpawnedAt = now;
-    return monster;
+    this.lastPopulationRefillAt = now;
+
+    const spawned: ChannelMonster[] = [];
+
+    for (const preset of ChannelService.MONSTER_POPULATION_PRESETS) {
+      let deficit = preset.count - this.countMonsterPopulation(preset.name);
+
+      while (
+        deficit > 0 &&
+        spawned.length < ChannelService.MONSTER_POPULATION_SPAWN_BATCH &&
+        this.monsters.size < ChannelService.MAX_MONSTERS
+      ) {
+        const monster = this.spawnPopulationMonster(preset, now);
+
+        if (!monster) {
+          break;
+        }
+
+        spawned.push(monster);
+        deficit -= 1;
+      }
+
+      if (
+        spawned.length >= ChannelService.MONSTER_POPULATION_SPAWN_BATCH ||
+        this.monsters.size >= ChannelService.MAX_MONSTERS
+      ) {
+        break;
+      }
+    }
+
+    return spawned;
   }
 
   moveMonsters(now = Date.now()): ChannelMonster[] {
@@ -546,11 +613,74 @@ export class ChannelService {
     return this.toWorldPosition(tile.x, tile.y);
   }
 
-  private getAutoSpawnMonsterPosition() {
-    return this.toWorldPosition(
-      ChannelService.MONSTER_AUTO_SPAWN_TILE_X,
-      ChannelService.MONSTER_AUTO_SPAWN_TILE_Y,
+  private countMonsterPopulation(presetKey: string): number {
+    let count = 0;
+
+    for (const monster of this.monsters.values()) {
+      if (monster.presetKey === presetKey) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  private spawnPopulationMonster(
+    preset: MonsterPopulationPreset,
+    now = Date.now(),
+  ): ChannelMonster | null {
+    const position = this.getRandomWalkablePosition();
+
+    if (!position) {
+      return null;
+    }
+
+    const monster: ChannelMonster = {
+      id: `monster:${now}:${Math.random().toString(36).slice(2, 8)}`,
+      // 야생 몬스터는 머리 위 이름표를 노출하지 않는다. 식별은 presetKey로만 한다.
+      name: '',
+      renderId: preset.renderId,
+      renderColor: preset.renderColor,
+      x: position.x,
+      y: position.y,
+      direction: 'down',
+      spawnedAt: new Date(now).toISOString(),
+      expiresAt: ChannelService.PERSISTENT_MONSTER_EXPIRES_AT,
+      presetKey: preset.name,
+    };
+
+    this.registerMonster(monster, now);
+    return monster;
+  }
+
+  /**
+   * 맵 전체에서 이동 가능한(이동불가 타일이 아닌) 임의의 위치를 찾는다.
+   * 대부분의 타일이 이동 가능하므로 거부 샘플링으로 충분하며,
+   * 극히 드문 실패 시에는 리스폰 중심 주변의 이동 가능 타일로 대체한다.
+   */
+  private getRandomWalkablePosition(): { x: number; y: number } | null {
+    for (
+      let attempt = 0;
+      attempt < ChannelService.MONSTER_POPULATION_SPAWN_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      const tileX = this.randomInt(0, ChannelService.MAX_TILE_X);
+      const tileY = this.randomInt(0, ChannelService.MAX_TILE_Y);
+
+      if (this.isWalkDisabledTile(tileX, tileY)) {
+        continue;
+      }
+
+      return this.toWorldPosition(tileX, tileY);
+    }
+
+    const fallbackTile = this.findNearbyWalkableTile(
+      ChannelService.RESPAWN_CENTER_TILE_X,
+      ChannelService.RESPAWN_CENTER_TILE_Y,
+      this.randomInt(0, 32),
     );
+
+    return this.toWorldPosition(fallbackTile.x, fallbackTile.y);
   }
 
   private createMonster(
@@ -571,6 +701,12 @@ export class ChannelService {
       expiresAt: new Date(now + ChannelService.MONSTER_LIFETIME_MS).toISOString(),
     };
 
+    this.registerMonster(monster, now);
+
+    return monster;
+  }
+
+  private registerMonster(monster: ChannelMonster, now = Date.now()) {
     this.monsters.set(monster.id, monster);
     this.lastMonsterMovedAtById.set(
       monster.id,
@@ -583,8 +719,6 @@ export class ChannelService {
           ),
         ),
     );
-
-    return monster;
   }
 
   private normalizeStep(value: number | undefined): number {
@@ -617,11 +751,19 @@ export class ChannelService {
 
   private pruneExpiredMonsters(now = Date.now()) {
     for (const monster of this.monsters.values()) {
+      if (this.isPersistentMonster(monster)) {
+        continue;
+      }
+
       const expiresAt = new Date(monster.expiresAt).getTime();
       if (expiresAt <= now) {
         this.detachMonster(monster.id);
       }
     }
+  }
+
+  private isPersistentMonster(monster: ChannelMonster): boolean {
+    return typeof monster.presetKey === 'string';
   }
 
   private isMonsterSpawnOperator(participant: ChannelParticipant) {
@@ -750,6 +892,16 @@ export class ChannelService {
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
+  /** Fisher-Yates 셔플(균등 분포). 입력 배열을 제자리에서 섞고 그대로 반환한다. */
+  private shuffle<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+
+    return array;
+  }
+
   private pickMonsterPreset(now: number, requestedName?: string) {
     const normalizedName = requestedName?.trim();
     const randomSeed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
@@ -780,19 +932,15 @@ export class ChannelService {
       { dx: -ChannelService.TILE_SIZE, dy: 0, direction: 'left' },
       { dx: ChannelService.TILE_SIZE, dy: 0, direction: 'right' },
     ];
-    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    // Fisher-Yates 셔플로 방향 편향을 제거한다.
+    // (sort(() => Math.random() - 0.5) 는 분포가 치우쳐 몬스터가 우측 상단으로 쏠린다.)
+    const shuffled = this.shuffle([...candidates]);
 
     for (const candidate of shuffled) {
-      const nextX = this.clamp(
-        monster.x + candidate.dx,
-        0,
-        ChannelService.MAX_POSITION_X,
-      );
-      const nextY = this.clamp(
-        monster.y + candidate.dy,
-        0,
-        ChannelService.MAX_POSITION_Y,
-      );
+      const nextX = monster.x + candidate.dx;
+      const nextY = monster.y + candidate.dy;
+      // 맵 경계를 벗어나는 이동은 벽으로 간주해 건너뛴다.
+      // (clamp 로 제자리에 머무르게 하면 가장자리에서 이동을 낭비하게 된다.)
       if (!this.isWalkablePosition(nextX, nextY)) {
         continue;
       }
