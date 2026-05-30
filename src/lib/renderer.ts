@@ -39,16 +39,20 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
   const palHead = cyclePalette(
     PAL.head[rowHead._u2] ?? PAL.head[0],
     colorTick,
+    true,
   );
   const palBody = cyclePalette(
     params.bodyc >= 255
       ? PAL.body[113 + params.bodyc / 255]
       : (PAL.body[rowBody._u2] ?? PAL.body[0]),
     colorTick,
+    // 커스텀 염색(>=255)은 현재 방향 유지, 원본 데이터 순환만 역방향 적용
+    params.bodyc < 255,
   );
   const palShld = cyclePalette(
     PAL.shield[rowShld._u2] ?? PAL.shield[0],
     colorTick,
+    true,
   );
 
   const bitmaps = [] as ReturnType<typeof decodeEpfItem>[];
@@ -110,6 +114,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         const palSword = cyclePalette(
           PAL.sword[rowSword._u2] ?? PAL.sword[0],
           colorTick,
+          true,
         );
         if (num >= 12 && num <= 31) {
           const idx = rowSword._u3 + (num - 12);
@@ -134,6 +139,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         const palSpear = cyclePalette(
           PAL.spear[rowSpear._u2] ?? PAL.spear[0],
           colorTick,
+          true,
         );
         if (num >= 32 && num <= 51) {
           const idx = rowSpear._u3 + (num - 32);
@@ -158,6 +164,7 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         const palFan = cyclePalette(
           PAL.fan[rowFan._u2] ?? PAL.fan[0],
           colorTick,
+          true,
         );
         if (num >= 12 && num <= 31) {
           const idx = rowFan._u3 + (num - 13);

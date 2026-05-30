@@ -72,16 +72,22 @@ export function colorAnimationPeriod(
 // Returns a new PaletteVariant whose colors are rotated by `tick` positions
 // within each animation range. `tick=0` returns the original palette.
 // Rotation direction: range[i] receives color from range[(i + tick) % length].
+// When `reverse` is set the rotation runs the opposite way: the cycling
+// animation baked into the original char.dat palettes reads backwards, so the
+// renderer passes reverse=true for those (custom >=255 dyes keep the forward
+// direction).
 export function cyclePalette(
   palette: PaletteVariant,
   tick: number,
+  reverse = false,
 ): PaletteVariant {
   const ranges = getAnimationRanges(palette);
   if (ranges.length === 0 || tick === 0) return palette;
 
   const out: Rgb[] = palette.colors.slice();
   for (const { start, end, length } of ranges) {
-    const rot = ((tick % length) + length) % length;
+    const forwardRot = ((tick % length) + length) % length;
+    const rot = reverse ? (length - forwardRot) % length : forwardRot;
     if (rot === 0) continue;
     const src = palette.colors.slice(start, end + 1);
     for (let i = 0; i < length; i++) {
