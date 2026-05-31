@@ -7,6 +7,7 @@ interface SkillInterface {
   desc: string;
   effect: Array<string>;
   level: string;
+  imageIndex?: number;
   scaleUp?: boolean;
   class?: number;
   noImg?: boolean;
