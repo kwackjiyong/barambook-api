@@ -5,7 +5,7 @@ import { inflateSync } from 'node:zlib';
 import { disabledPositions } from '../assets/object/330_disabled_xy';
 
 export type MoveDirection = 'up' | 'down' | 'left' | 'right';
-export type ChannelKey = '330' | '45000';
+export type ChannelKey = '39750' | '330' | '45000' | '2028' | '45183';
 
 /**
  * 채널 하나에 대응하는 맵 설정. 맵을 바꾸려면 cmpName/리스폰 좌표만 교체하면 된다.
@@ -24,7 +24,24 @@ export interface MapConfig {
   respawnCenterTileY: number;
 }
 
-/** 부여성(맵 330) 설정. 현재 단일 채널이 사용하는 기본 맵. */
+/**
+ * 허브채널(맵 39750) 설정. 초기 입장(허브) 맵.
+ * 상단 포탈 타일(14,4)/(15,4)에서 부여성·고균도 채널 선택 팝업으로 이동한다(프론트 처리).
+ * respawn 은 포탈에서 떨어진 안쪽 칸으로 두어 입장 즉시 팝업이 뜨지 않게 한다.
+ */
+export const SUNJE_MAP_CONFIG: MapConfig = {
+  channelKey: '39750',
+  channelLabel: '입장맵',
+  mapName: 'Ba039750.map',
+  cmpName: 'Ba039750.cmp',
+  tileSize: 24,
+  width: 40,
+  height: 40,
+  respawnCenterTileX: 14,
+  respawnCenterTileY: 15,
+};
+
+/** 부여성(맵 330) 설정. */
 export const BUYEO_MAP_CONFIG: MapConfig = {
   channelKey: '330',
   channelLabel: '부여성',
@@ -49,14 +66,45 @@ export const GOGYUNDO_MAP_CONFIG: MapConfig = {
   respawnCenterTileY: 100,
 };
 
-export const DEFAULT_CHANNEL_KEY: ChannelKey = BUYEO_MAP_CONFIG.channelKey;
+/** 북극점(맵 2028) 설정. */
+export const NORTH_POLE_MAP_CONFIG: MapConfig = {
+  channelKey: '2028',
+  channelLabel: '북극점',
+  mapName: 'Ba002028.map',
+  cmpName: 'Ba002028.cmp',
+  tileSize: 24,
+  width: 64,
+  height: 64,
+  respawnCenterTileX: 32,
+  respawnCenterTileY: 32,
+};
+
+/** 고균도전망대1(맵 45183) 설정. 소형 맵(17×15). */
+export const GOGYUNDO_OBSERVATORY_MAP_CONFIG: MapConfig = {
+  channelKey: '45183',
+  channelLabel: '고균도전망대1',
+  mapName: 'Ba045183.map',
+  cmpName: 'Ba045183.cmp',
+  tileSize: 24,
+  width: 17,
+  height: 15,
+  respawnCenterTileX: 6,
+  respawnCenterTileY: 10,
+};
+
+export const DEFAULT_CHANNEL_KEY: ChannelKey = SUNJE_MAP_CONFIG.channelKey;
 export const CHANNEL_MAP_CONFIGS = [
+  SUNJE_MAP_CONFIG,
   BUYEO_MAP_CONFIG,
   GOGYUNDO_MAP_CONFIG,
+  NORTH_POLE_MAP_CONFIG,
+  GOGYUNDO_OBSERVATORY_MAP_CONFIG,
 ] as const satisfies readonly MapConfig[];
 
 export function normalizeChannelKey(value: unknown): ChannelKey {
-  const rawChannelKey = Array.isArray(value) ? value[0] : value;
+  // 소켓 query 값은 string | string[] | undefined 등 무엇이든 올 수 있으므로 unknown 으로 받아 문자열만 추린다.
+  const rawValue: unknown = Array.isArray(value) ? value[0] : value;
+  const rawChannelKey = typeof rawValue === 'string' ? rawValue : '';
   const channelKey =
     rawChannelKey === 'buyeo'
       ? BUYEO_MAP_CONFIG.channelKey
@@ -69,7 +117,9 @@ export function normalizeChannelKey(value: unknown): ChannelKey {
     : DEFAULT_CHANNEL_KEY;
 }
 
-const CDN_BASE = (process.env.CDN_URL ?? 'https://d9dw0d9hih79y.cloudfront.net').replace(/\/$/, '');
+const CDN_BASE = (
+  process.env.CDN_URL ?? 'https://d9dw0d9hih79y.cloudfront.net'
+).replace(/\/$/, '');
 const TILE_DAT_URL = `${CDN_BASE}/data/dat/TILE.DAT`;
 
 /**
@@ -99,7 +149,9 @@ export class MapCollision {
   }
 
   private inBounds(tileX: number, tileY: number): boolean {
-    return tileX >= 0 && tileY >= 0 && tileX < this.width && tileY < this.height;
+    return (
+      tileX >= 0 && tileY >= 0 && tileX < this.width && tileY < this.height
+    );
   }
 
   /** 그 칸에 설 수 있는가(경계 밖·no_move 면 false). 엣지(변 벽)는 고려하지 않는다. */
@@ -121,7 +173,11 @@ export class MapCollision {
    * (fromTileX, fromTileY)에서 한 칸 인접한 방향으로 이동할 수 있는가.
    * 목적지가 설 수 있는 칸이어야 하고, 두 칸이 공유하는 변에 오브젝트 벽이 없어야 한다.
    */
-  canCross(fromTileX: number, fromTileY: number, direction: MoveDirection): boolean {
+  canCross(
+    fromTileX: number,
+    fromTileY: number,
+    direction: MoveDirection,
+  ): boolean {
     let toX = fromTileX;
     let toY = fromTileY;
     switch (direction) {
@@ -230,9 +286,15 @@ function parseCmp(bytes: Uint8Array): CmpData {
   const payload = inflateSync(Buffer.from(bytes.subarray(8)));
   const cellCount = width * height;
   const stride =
-    payload.length === cellCount * 12 ? 12 : payload.length === cellCount * 6 ? 6 : 0;
+    payload.length === cellCount * 12
+      ? 12
+      : payload.length === cellCount * 6
+        ? 6
+        : 0;
   if (stride === 0) {
-    throw new Error(`Unexpected CMP payload size: ${payload.length} for ${width}x${height}`);
+    throw new Error(
+      `Unexpected CMP payload size: ${payload.length} for ${width}x${height}`,
+    );
   }
 
   const payloadReader = new BinaryReader(payload);
@@ -265,7 +327,10 @@ function readDatEntry(bytes: Uint8Array, name: string): Uint8Array {
   let pos = 4;
   const entries: { name: string; offset: number }[] = [];
   for (let i = 0; i < fileCount; i += 1) {
-    entries.push({ offset: reader.u32le(pos), name: reader.ascii(pos + 4, 13) });
+    entries.push({
+      offset: reader.u32le(pos),
+      name: reader.ascii(pos + 4, 13),
+    });
     pos += 17;
   }
   const sentinel = reader.u32le(pos);
@@ -275,7 +340,8 @@ function readDatEntry(bytes: Uint8Array, name: string): Uint8Array {
     if (entries[i].name.toLowerCase() !== target) {
       continue;
     }
-    const nextOffset = i + 1 < entries.length ? entries[i + 1].offset : sentinel;
+    const nextOffset =
+      i + 1 < entries.length ? entries[i + 1].offset : sentinel;
     return reader.slice(entries[i].offset, nextOffset - entries[i].offset);
   }
   throw new Error(`${name} was not found in TILE.DAT`);
@@ -348,7 +414,9 @@ function loadSObjMovementMasks(): Promise<number[]> {
  * 채널 맵의 충돌 정보를 CDN 의 `.cmp` + `TILE.DAT`(SObj.tbl)에서 런타임 로딩한다.
  * no_move 셀과, 정적 오브젝트가 깔린 셀의 방향 엣지 마스크를 함께 구성한다.
  */
-export async function loadMapCollision(config: MapConfig): Promise<MapCollision> {
+export async function loadMapCollision(
+  config: MapConfig,
+): Promise<MapCollision> {
   const [cmpBytes, sObjMasks] = await Promise.all([
     fetchBytes(`${CDN_BASE}/map_data/${config.cmpName}`),
     loadSObjMovementMasks(),
