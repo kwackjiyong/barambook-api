@@ -1,10 +1,11 @@
 ﻿import { Injectable } from '@nestjs/common';
-import { disabledPositions } from '../assets/object/330_disabled_xy';
 import { Member } from '../member/member.schema';
-
-type DisabledPosition = { x: number; y: number };
-
-const WALK_DISABLED_TILE_SET = buildWalkDisabledTileSet(disabledPositions);
+import {
+  BUYEO_MAP_CONFIG,
+  buildFallbackCollision,
+  type MapCollision,
+  type MapConfig,
+} from './map-collision';
 
 export type ChannelDirection = 'up' | 'down' | 'left' | 'right';
 
@@ -104,21 +105,7 @@ interface MovePayload {
 
 @Injectable()
 export class ChannelService {
-  private static readonly MAP_TILE_WIDTH = 146;
-  private static readonly MAP_TILE_HEIGHT = 156;
   private static readonly TILE_SIZE = 24;
-  private static readonly MAP_WIDTH =
-    ChannelService.MAP_TILE_WIDTH * ChannelService.TILE_SIZE;
-  private static readonly MAP_HEIGHT =
-    ChannelService.MAP_TILE_HEIGHT * ChannelService.TILE_SIZE;
-  private static readonly MAX_TILE_X = ChannelService.MAP_TILE_WIDTH - 1;
-  private static readonly MAX_TILE_Y = ChannelService.MAP_TILE_HEIGHT - 1;
-  private static readonly MAX_POSITION_X =
-    ChannelService.MAX_TILE_X * ChannelService.TILE_SIZE;
-  private static readonly MAX_POSITION_Y =
-    ChannelService.MAX_TILE_Y * ChannelService.TILE_SIZE;
-  private static readonly RESPAWN_CENTER_TILE_X = 71;
-  private static readonly RESPAWN_CENTER_TILE_Y = 130;
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
@@ -179,6 +166,43 @@ export class ChannelService {
   private readonly lastChattedAt = new Map<string, number>();
   private readonly lastMonsterMovedAtById = new Map<string, number>();
   private lastPopulationRefillAt = 0;
+
+  private readonly collision: MapCollision;
+  private readonly respawnCenterTileX: number;
+  private readonly respawnCenterTileY: number;
+
+  constructor(
+    config: MapConfig = BUYEO_MAP_CONFIG,
+    collision: MapCollision = buildFallbackCollision(BUYEO_MAP_CONFIG),
+  ) {
+    this.collision = collision;
+    this.respawnCenterTileX = config.respawnCenterTileX;
+    this.respawnCenterTileY = config.respawnCenterTileY;
+  }
+
+  private get maxTileX(): number {
+    return this.collision.width - 1;
+  }
+
+  private get maxTileY(): number {
+    return this.collision.height - 1;
+  }
+
+  private get mapTileWidth(): number {
+    return this.collision.width;
+  }
+
+  private get mapTileHeight(): number {
+    return this.collision.height;
+  }
+
+  private get maxPositionX(): number {
+    return this.maxTileX * ChannelService.TILE_SIZE;
+  }
+
+  private get maxPositionY(): number {
+    return this.maxTileY * ChannelService.TILE_SIZE;
+  }
 
   addParticipant(
     member: Member,
@@ -266,8 +290,8 @@ export class ChannelService {
       return rotatedParticipant;
     }
 
-    const nextX = this.clamp(current.x + dx, 0, ChannelService.MAX_POSITION_X);
-    const nextY = this.clamp(current.y + dy, 0, ChannelService.MAX_POSITION_Y);
+    const nextX = this.clamp(current.x + dx, 0, this.maxPositionX);
+    const nextY = this.clamp(current.y + dy, 0, this.maxPositionY);
 
     if (!isMoveRequested) {
       if (!isDirectionChanged && !isJumpStateChanged) {
@@ -283,7 +307,7 @@ export class ChannelService {
       return rotatedParticipant;
     }
 
-    if (!this.isWalkablePosition(nextX, nextY)) {
+    if (!this.canTraverse(current.x, current.y, dx, dy)) {
       if (!isDirectionChanged && !isJumpStateChanged) {
         return null;
       }
@@ -598,8 +622,8 @@ export class ChannelService {
 
   private getSpawnPosition(index: number) {
     const tile = this.findNearbyWalkableTile(
-      ChannelService.RESPAWN_CENTER_TILE_X,
-      ChannelService.RESPAWN_CENTER_TILE_Y,
+      this.respawnCenterTileX,
+      this.respawnCenterTileY,
       index,
     );
 
@@ -608,8 +632,8 @@ export class ChannelService {
 
   private getMonsterSpawnPosition() {
     const tile = this.findNearbyWalkableTile(
-      ChannelService.RESPAWN_CENTER_TILE_X,
-      ChannelService.RESPAWN_CENTER_TILE_Y,
+      this.respawnCenterTileX,
+      this.respawnCenterTileY,
       this.monsters.size,
       2,
     );
@@ -668,8 +692,8 @@ export class ChannelService {
       attempt < ChannelService.MONSTER_POPULATION_SPAWN_MAX_ATTEMPTS;
       attempt += 1
     ) {
-      const tileX = this.randomInt(0, ChannelService.MAX_TILE_X);
-      const tileY = this.randomInt(0, ChannelService.MAX_TILE_Y);
+      const tileX = this.randomInt(0, this.maxTileX);
+      const tileY = this.randomInt(0, this.maxTileY);
 
       if (this.isWalkDisabledTile(tileX, tileY)) {
         continue;
@@ -679,8 +703,8 @@ export class ChannelService {
     }
 
     const fallbackTile = this.findNearbyWalkableTile(
-      ChannelService.RESPAWN_CENTER_TILE_X,
-      ChannelService.RESPAWN_CENTER_TILE_Y,
+      this.respawnCenterTileX,
+      this.respawnCenterTileY,
       this.randomInt(0, 32),
     );
 
@@ -935,20 +959,20 @@ export class ChannelService {
     // Fisher-Yates 셔플로 방향 편향을 제거한다.
     // (sort(() => Math.random() - 0.5) 는 분포가 치우쳐 몬스터가 우측 상단으로 쏠린다.)
     const shuffled = this.shuffle([...candidates]);
+    const fromTileX = monster.x / ChannelService.TILE_SIZE;
+    const fromTileY = monster.y / ChannelService.TILE_SIZE;
 
     for (const candidate of shuffled) {
-      const nextX = monster.x + candidate.dx;
-      const nextY = monster.y + candidate.dy;
-      // 맵 경계를 벗어나는 이동은 벽으로 간주해 건너뛴다.
+      // 맵 경계 밖이거나 no_move 칸, 또는 두 칸 사이 오브젝트 벽이 있으면 건너뛴다.
       // (clamp 로 제자리에 머무르게 하면 가장자리에서 이동을 낭비하게 된다.)
-      if (!this.isWalkablePosition(nextX, nextY)) {
+      if (!this.collision.canCross(fromTileX, fromTileY, candidate.direction)) {
         continue;
       }
 
       return {
         ...monster,
-        x: nextX,
-        y: nextY,
+        x: monster.x + candidate.dx,
+        y: monster.y + candidate.dy,
         direction: candidate.direction,
       };
     }
@@ -968,6 +992,27 @@ export class ChannelService {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * (fromX, fromY)에서 (dx, dy) 만큼 이동할 수 있는가.
+   * 한 칸 직선 이동이면 방향 엣지(오브젝트 벽)까지 검사하고,
+   * 그 외(대각선 등 비정형 입력)는 목적지 칸의 통행 가능 여부만 본다.
+   */
+  private canTraverse(fromX: number, fromY: number, dx: number, dy: number): boolean {
+    const fromTile = this.toTilePosition(fromX, fromY);
+    const isSingleAxisStep = (dx === 0) !== (dy === 0);
+
+    if (fromTile && isSingleAxisStep) {
+      const stepDirection: ChannelDirection =
+        dx !== 0 ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+      return this.collision.canCross(fromTile.x, fromTile.y, stepDirection);
+    }
+
+    // 대각선 등 비정형 입력은 목적지 칸 단위 통행 가능 여부만 본다(엣지 미적용).
+    const toX = this.clamp(fromX + dx, 0, this.maxPositionX);
+    const toY = this.clamp(fromY + dy, 0, this.maxPositionY);
+    return this.isWalkablePosition(toX, toY);
   }
 
   private isWalkablePosition(x: number, y: number): boolean {
@@ -991,12 +1036,7 @@ export class ChannelService {
     const tileX = x / ChannelService.TILE_SIZE;
     const tileY = y / ChannelService.TILE_SIZE;
 
-    if (
-      tileX < 0 ||
-      tileX > ChannelService.MAX_TILE_X ||
-      tileY < 0 ||
-      tileY > ChannelService.MAX_TILE_Y
-    ) {
+    if (tileX < 0 || tileX > this.maxTileX || tileY < 0 || tileY > this.maxTileY) {
       return null;
     }
 
@@ -1004,7 +1044,7 @@ export class ChannelService {
   }
 
   private isWalkDisabledTile(tileX: number, tileY: number) {
-    return WALK_DISABLED_TILE_SET.has(`${tileX}:${tileY}`);
+    return !this.collision.isWalkableTile(tileX, tileY);
   }
 
   private findNearbyWalkableTile(
@@ -1018,18 +1058,17 @@ export class ChannelService {
 
     for (
       let radius = 0;
-      radius <=
-      Math.max(ChannelService.MAP_TILE_WIDTH, ChannelService.MAP_TILE_HEIGHT);
+      radius <= Math.max(this.mapTileWidth, this.mapTileHeight);
       radius += 1
     ) {
       for (
         let tileY = Math.max(baseTileY - radius, 0);
-        tileY <= Math.min(baseTileY + radius, ChannelService.MAX_TILE_Y);
+        tileY <= Math.min(baseTileY + radius, this.maxTileY);
         tileY += 1
       ) {
         for (
           let tileX = Math.max(baseTileX - radius, 0);
-          tileX <= Math.min(baseTileX + radius, ChannelService.MAX_TILE_X);
+          tileX <= Math.min(baseTileX + radius, this.maxTileX);
           tileX += 1
         ) {
           const distance = Math.max(
@@ -1062,26 +1101,8 @@ export class ChannelService {
 
   private toWorldPosition(tileX: number, tileY: number) {
     return {
-      x: this.clamp(
-        tileX * ChannelService.TILE_SIZE,
-        0,
-        ChannelService.MAX_POSITION_X,
-      ),
-      y: this.clamp(
-        tileY * ChannelService.TILE_SIZE,
-        0,
-        ChannelService.MAX_POSITION_Y,
-      ),
+      x: this.clamp(tileX * ChannelService.TILE_SIZE, 0, this.maxPositionX),
+      y: this.clamp(tileY * ChannelService.TILE_SIZE, 0, this.maxPositionY),
     };
   }
-}
-
-function buildWalkDisabledTileSet(source: DisabledPosition[]) {
-  const disabled = new Set<string>();
-
-  for (const position of source) {
-    disabled.add(`${position.x}:${position.y}`);
-  }
-
-  return disabled;
 }
