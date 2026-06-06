@@ -1,4 +1,4 @@
-﻿import {
+import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
@@ -11,11 +11,9 @@ import { Logger } from '@nestjs/common';
 import { Namespace, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
 import { UserService } from '../user/user.service';
-import {
-  ChannelRenderState,
-  ChannelService,
-  type ChannelMonster,
-} from './channel.service';
+import { ChannelRenderState, type ChannelMonster } from './channel.service';
+import { ChannelWorldsService } from './channel-worlds.service';
+import { normalizeChannelKey, type ChannelKey } from './map-collision';
 
 interface MoveMessageBody {
   dx?: number;
@@ -27,10 +25,6 @@ interface MoveMessageBody {
 interface ChatMessageBody {
   message?: string;
   isPinned?: boolean;
-}
-
-interface SpawnMonsterBody {
-  name?: string;
 }
 
 type RenderSyncBody = Partial<ChannelRenderState>;
@@ -54,12 +48,18 @@ export class ChannelGateway
   constructor(
     private readonly memberService: MemberService,
     private readonly userService: UserService,
-    private readonly channelService: ChannelService,
+    private readonly channelWorldsService: ChannelWorldsService,
   ) {
     this.startMonsterLoop();
   }
 
   async handleConnection(client: Socket): Promise<void> {
+    const channelKey = normalizeChannelKey(client.handshake.query.channelKey);
+    const channelService = this.channelWorldsService.get(channelKey);
+    const roomName = this.getRoomName(channelKey);
+    client.data.channelKey = channelKey;
+    client.join(roomName);
+
     const sessionToken = this.extractSessionToken(
       client.handshake.headers.cookie,
     );
@@ -75,7 +75,7 @@ export class ChannelGateway
       const likeCount = await this.userService.getLikeCountForName(
         member.nickname ?? member.representativeCharacterName ?? member.accountId,
       );
-      const previousSocketId = this.channelService.findSocketIdByAccountId(
+      const previousSocketId = channelService.findSocketIdByAccountId(
         member.accountId,
       );
 
@@ -88,11 +88,11 @@ export class ChannelGateway
           });
           previousSocket.disconnect(true);
         } else {
-          this.channelService.removeParticipant(previousSocketId);
+          channelService.removeParticipant(previousSocketId);
         }
       }
 
-      const participant = this.channelService.addParticipant(
+      const participant = channelService.addParticipant(
         member,
         client.id,
         likeCount,
@@ -100,9 +100,9 @@ export class ChannelGateway
 
       client.emit(
         'channel:bootstrap',
-        this.channelService.getBootstrapPayload(client.id),
+        channelService.getBootstrapPayload(client.id),
       );
-      client.broadcast.emit('channel:participant-joined', participant);
+      client.to(roomName).emit('channel:participant-joined', participant);
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       this.logger.warn(`Falling back to guest channel access: ${client.id}`);
@@ -111,10 +111,12 @@ export class ChannelGateway
   }
 
   handleDisconnect(client: Socket): void {
-    const removed = this.channelService.removeParticipant(client.id);
+    const channelKey = this.getClientChannelKey(client);
+    const removed =
+      this.channelWorldsService.get(channelKey).removeParticipant(client.id);
 
     if (removed) {
-      this.server.emit('channel:participant-left', {
+      this.server.to(this.getRoomName(channelKey)).emit('channel:participant-left', {
         participantId: removed.id,
       });
     }
@@ -125,10 +127,15 @@ export class ChannelGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: MoveMessageBody,
   ): void {
-    const participant = this.channelService.moveParticipant(client.id, payload);
+    const channelKey = this.getClientChannelKey(client);
+    const participant = this.channelWorldsService
+      .get(channelKey)
+      .moveParticipant(client.id, payload);
 
     if (participant) {
-      this.server.emit('channel:participant-moved', participant);
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:participant-moved', participant);
     }
   }
 
@@ -137,11 +144,14 @@ export class ChannelGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ChatMessageBody,
   ): void {
-    const result = this.channelService.addMessage(
-      client.id,
-      payload?.message ?? '',
-      payload?.isPinned === true,
-    );
+    const channelKey = this.getClientChannelKey(client);
+    const result = this.channelWorldsService
+      .get(channelKey)
+      .addMessage(
+        client.id,
+        payload?.message ?? '',
+        payload?.isPinned === true,
+      );
 
     if (result.error) {
       client.emit('channel:error', {
@@ -151,16 +161,23 @@ export class ChannelGateway
     }
 
     if (result.message) {
-      this.server.emit('channel:chat-message', result.message);
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:chat-message', result.message);
     }
   }
 
   @SubscribeMessage('chat:clear-pinned')
   handleClearPinnedChat(@ConnectedSocket() client: Socket): void {
-    const message = this.channelService.clearPinnedMessage(client.id);
+    const channelKey = this.getClientChannelKey(client);
+    const message = this.channelWorldsService
+      .get(channelKey)
+      .clearPinnedMessage(client.id);
 
     if (message) {
-      this.server.emit('channel:chat-message-updated', message);
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:chat-message-updated', message);
     }
   }
 
@@ -173,27 +190,28 @@ export class ChannelGateway
       return;
     }
 
-    const result = this.channelService.updateParticipantRender(
-      client.id,
-      payload,
-    );
+    const channelKey = this.getClientChannelKey(client);
+    const result = this.channelWorldsService
+      .get(channelKey)
+      .updateParticipantRender(client.id, payload);
 
     if (result.participant) {
-      this.server.emit('channel:participant-updated', result.participant);
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:participant-updated', result.participant);
     }
 
     if (result.removedMonster) {
-      this.emitMonsterRemoved(result.removedMonster, 'hit');
+      this.emitMonsterRemoved(channelKey, result.removedMonster, 'hit');
     }
   }
 
   @SubscribeMessage('monster:spawn')
-  handleMonsterSpawn(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: SpawnMonsterBody,
-  ): void {
-
-    const result = this.channelService.spawnMonster(client.id, payload?.name);
+  handleMonsterSpawn(@ConnectedSocket() client: Socket): void {
+    const channelKey = this.getClientChannelKey(client);
+    const result = this.channelWorldsService
+      .get(channelKey)
+      .spawnMonster(client.id);
 
     if (result.error) {
       client.emit('channel:error', { message: result.error });
@@ -201,7 +219,9 @@ export class ChannelGateway
     }
 
     if (result.monster) {
-      this.server.emit('channel:monster-spawned', result.monster);
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:monster-spawned', result.monster);
     }
   }
 
@@ -224,6 +244,9 @@ export class ChannelGateway
   }
 
   private connectGuestParticipant(client: Socket): void {
+    const channelKey = this.getClientChannelKey(client);
+    const channelService = this.channelWorldsService.get(channelKey);
+    const roomName = this.getRoomName(channelKey);
     const ipAddress = this.extractClientIp(client);
 
     if (!ipAddress) {
@@ -235,7 +258,7 @@ export class ChannelGateway
     }
 
     const previousGuestSocketId =
-      this.channelService.findGuestSocketIdByIp(ipAddress);
+      channelService.findGuestSocketIdByIp(ipAddress);
 
     if (previousGuestSocketId && previousGuestSocketId !== client.id) {
       const previousGuestSocket = this.server.sockets.get(
@@ -250,18 +273,18 @@ export class ChannelGateway
         return;
       }
 
-      this.channelService.removeParticipant(previousGuestSocketId);
+      channelService.removeParticipant(previousGuestSocketId);
     }
 
-    const participant = this.channelService.addGuestParticipant(
+    const participant = channelService.addGuestParticipant(
       client.id,
       ipAddress,
     );
     client.emit(
       'channel:bootstrap',
-      this.channelService.getBootstrapPayload(client.id),
+      channelService.getBootstrapPayload(client.id),
     );
-    client.broadcast.emit('channel:participant-joined', participant);
+    client.to(roomName).emit('channel:participant-joined', participant);
   }
 
   private extractClientIp(client: Socket): string | null {
@@ -312,34 +335,49 @@ export class ChannelGateway
     return value === undefined || value === null || typeof value === 'string';
   }
 
+  private getClientChannelKey(client: Socket): ChannelKey {
+    return normalizeChannelKey(client.data.channelKey);
+  }
+
+  private getRoomName(channelKey: ChannelKey): string {
+    return `channel:${channelKey}`;
+  }
+
   private startMonsterLoop() {
     this.monsterLoopTimer = setInterval(() => {
-      const removedMonsters = this.channelService.removeExpiredMonsters();
-      const spawnedMonsters = this.channelService.maintainMonsterPopulation();
-      const movedMonsters = this.channelService.moveMonsters();
-
-      for (const monster of spawnedMonsters) {
-        this.server.emit('channel:monster-spawned', monster);
+      if (!this.server) {
+        return;
       }
 
-      for (const monster of removedMonsters) {
-        this.emitMonsterRemoved(monster, 'expired');
-      }
+      for (const [channelKey, channelService] of this.channelWorldsService.entries()) {
+        const removedMonsters = channelService.removeExpiredMonsters();
+        const spawnedMonsters = channelService.maintainMonsterPopulation();
+        const movedMonsters = channelService.moveMonsters();
+        const roomName = this.getRoomName(channelKey);
 
-      if (movedMonsters.length > 0) {
-        this.server.emit('channel:monsters-moved', movedMonsters);
+        for (const monster of spawnedMonsters) {
+          this.server.to(roomName).emit('channel:monster-spawned', monster);
+        }
+
+        for (const monster of removedMonsters) {
+          this.emitMonsterRemoved(channelKey, monster, 'expired');
+        }
+
+        if (movedMonsters.length > 0) {
+          this.server.to(roomName).emit('channel:monsters-moved', movedMonsters);
+        }
       }
     }, 200);
   }
 
   private emitMonsterRemoved(
+    channelKey: ChannelKey,
     monster: ChannelMonster,
     reason: 'expired' | 'hit',
   ) {
-    this.server.emit('channel:monster-removed', {
+    this.server.to(this.getRoomName(channelKey)).emit('channel:monster-removed', {
       monsterId: monster.id,
       reason,
     });
   }
 }
-

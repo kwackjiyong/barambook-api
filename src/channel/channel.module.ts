@@ -3,40 +3,53 @@ import { MemberModule } from '../member/member.module';
 import { UserModule } from '../user/user.module';
 import { ChannelGateway } from './channel.gateway';
 import { ChannelService } from './channel.service';
+import { ChannelWorldsService } from './channel-worlds.service';
 import {
-  BUYEO_MAP_CONFIG,
+  CHANNEL_MAP_CONFIGS,
+  DEFAULT_CHANNEL_KEY,
   buildFallbackCollision,
   loadMapCollision,
+  type ChannelKey,
 } from './map-collision';
 
-/**
- * 채널 충돌 정보를 CDN 의 `.cmp`(+ TILE.DAT/SObj.tbl)에서 부팅 시 비동기로 로딩해
- * ChannelService 에 주입한다. 로딩 실패 시 부여성(330)의 동기 폴백으로 안전하게 시작한다.
- */
-const channelServiceProvider: Provider = {
-  provide: ChannelService,
+const channelWorldsServiceProvider: Provider = {
+  provide: ChannelWorldsService,
   useFactory: async () => {
     const logger = new Logger('ChannelCollision');
-    const config = BUYEO_MAP_CONFIG;
+    const worlds = new Map<ChannelKey, ChannelService>();
 
-    try {
-      const collision = await loadMapCollision(config);
-      logger.log(
-        `Loaded ${config.cmpName} (${collision.width}x${collision.height}) — ` +
-          `no-move ${collision.noMoveCount}, object-edge ${collision.edgeCount}`,
-      );
-      return new ChannelService(config, collision);
-    } catch (error) {
-      logger.warn(
-        `Failed to load ${config.cmpName}; using built-in fallback collision: ${String(error)}`,
-      );
-      return new ChannelService(config, buildFallbackCollision(config));
+    for (const config of CHANNEL_MAP_CONFIGS) {
+      try {
+        const collision = await loadMapCollision(config);
+        logger.log(
+          `Loaded ${config.channelLabel} ${config.cmpName} (${collision.width}x${collision.height}) ` +
+            `no-move ${collision.noMoveCount}, object-edge ${collision.edgeCount}`,
+        );
+        worlds.set(config.channelKey, new ChannelService(config, collision));
+      } catch (error) {
+        if (config.channelKey !== DEFAULT_CHANNEL_KEY) {
+          logger.error(
+            `Failed to load required ${config.channelLabel} ${config.cmpName}: ${String(error)}`,
+          );
+          throw error;
+        }
+
+        logger.warn(
+          `Failed to load ${config.channelLabel} ${config.cmpName}; using fallback collision: ${String(error)}`,
+        );
+        worlds.set(
+          config.channelKey,
+          new ChannelService(config, buildFallbackCollision(config)),
+        );
+      }
     }
+
+    return new ChannelWorldsService(worlds);
   },
 };
 
 @Module({
   imports: [MemberModule, UserModule],
-  providers: [ChannelGateway, channelServiceProvider],
+  providers: [ChannelGateway, channelWorldsServiceProvider],
 })
 export class ChannelModule {}

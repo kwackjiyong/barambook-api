@@ -1,21 +1,7 @@
 import { ChannelService, type ChannelMonster } from './channel.service';
 import { Member } from '../member/member.schema';
-import { disabledPositions } from '../assets/object/330_disabled_xy';
 
 const TILE_SIZE = 24;
-const WALK_DISABLED_TILE_SET = new Set(
-  disabledPositions.map((position) => `${position.x}:${position.y}`),
-);
-const MONSTER_POPULATION_PRESETS = (
-  ChannelService as unknown as {
-    MONSTER_POPULATION_PRESETS: Array<{
-      name: string;
-      renderId: number;
-      renderColor: number;
-      count: number;
-    }>;
-  }
-).MONSTER_POPULATION_PRESETS;
 
 function getMonsters(service: ChannelService): ChannelMonster[] {
   return Array.from(
@@ -29,10 +15,9 @@ function getWildMonsters(service: ChannelService): ChannelMonster[] {
   );
 }
 
-function fillMonsterPopulation(service: ChannelService) {
+function runMonsterPopulationTicks(service: ChannelService) {
   let now = Date.UTC(2026, 0, 1, 0, 0, 0);
 
-  // 배치 단위로 나눠 스폰되므로 충분히 여러 주기를 진행시켜 개체수를 채운다.
   for (let tick = 0; tick < 80; tick += 1) {
     service.maintainMonsterPopulation(now);
     now += 600;
@@ -41,28 +26,24 @@ function fillMonsterPopulation(service: ChannelService) {
   return now;
 }
 
-describe('ChannelService monster spawn limit', () => {
+describe('ChannelService', () => {
   let service: ChannelService;
 
   beforeEach(() => {
     service = new ChannelService();
   });
 
-  it('allows the 바람비전 operator to spawn up to the shared 120 monster limit', () => {
+  it('disables manual monster spawning for operators', () => {
     service.addParticipant(
       createMember('tester', 'tester-character', true),
       'socket-1',
       0,
     );
 
-    const spawned = Array.from({ length: 120 }, () =>
-      service.spawnMonster('socket-1'),
-    );
-    const overflowSpawn = service.spawnMonster('socket-1');
+    const result = service.spawnMonster('socket-1');
 
-    expect(spawned.every((result) => result.monster)).toBe(true);
-    expect(overflowSpawn.monster).toBeUndefined();
-    expect(overflowSpawn.error).toBe('최대 120마리까지만 소환가능합니다.');
+    expect(result.monster).toBeUndefined();
+    expect(result.error).toBe('몬스터 소환 기능은 현재 비활성화되어 있습니다.');
   });
 
   it('blocks non-operator members from spawning monsters', () => {
@@ -82,91 +63,41 @@ describe('ChannelService monster spawn limit', () => {
     expect(result.monster).toBeUndefined();
     expect(result.error).toBe('몬스터 소환은 운영자만 사용할 수 있습니다.');
   });
-  it('auto-maintains the configured wild monster population on walkable tiles', () => {
-    fillMonsterPopulation(service);
 
-    const wildMonsters = getWildMonsters(service);
-    const expectedTotal = MONSTER_POPULATION_PRESETS.reduce(
-      (sum, preset) => sum + preset.count,
-      0,
-    );
+  it('does not auto-maintain a wild monster population', () => {
+    runMonsterPopulationTicks(service);
 
-    expect(wildMonsters.length).toBe(expectedTotal);
-
-    for (const preset of MONSTER_POPULATION_PRESETS) {
-      const sameKind = wildMonsters.filter(
-        (monster) => monster.presetKey === preset.name,
-      );
-
-      expect(sameKind.length).toBe(preset.count);
-
-      for (const monster of sameKind) {
-        expect(monster.renderId).toBe(preset.renderId);
-        expect(monster.renderColor).toBe(preset.renderColor);
-        // 야생 몬스터는 머리 위 이름표가 노출되지 않도록 이름이 비어 있어야 한다.
-        expect(monster.name).toBe('');
-        // 이동불가 타일이 아닌, 타일에 정렬된 좌표에만 스폰되어야 한다.
-        expect(monster.x % TILE_SIZE).toBe(0);
-        expect(monster.y % TILE_SIZE).toBe(0);
-        expect(
-          WALK_DISABLED_TILE_SET.has(
-            `${monster.x / TILE_SIZE}:${monster.y / TILE_SIZE}`,
-          ),
-        ).toBe(false);
-      }
-    }
+    expect(getWildMonsters(service)).toHaveLength(0);
   });
 
-  it('does not exceed the configured count even after repeated maintenance ticks', () => {
-    const lastNow = fillMonsterPopulation(service);
+  it('keeps wild monster population disabled after repeated maintenance ticks', () => {
+    const lastNow = runMonsterPopulationTicks(service);
 
-    // 이미 가득 찬 상태에서 더 진행시켜도 개체수가 늘어나지 않아야 한다.
     service.maintainMonsterPopulation(lastNow + 600);
 
-    for (const preset of MONSTER_POPULATION_PRESETS) {
-      const sameKind = getWildMonsters(service).filter(
-        (monster) => monster.presetKey === preset.name,
-      );
-      expect(sameKind.length).toBe(preset.count);
-    }
+    expect(getWildMonsters(service)).toHaveLength(0);
   });
 
-  it('keeps wild monsters alive through expiry sweeps and refills them after a kill', () => {
-    fillMonsterPopulation(service);
+  it('removes stale wild monsters when population is disabled', () => {
+    const staleMonster: ChannelMonster = {
+      id: 'stale-wild-monster',
+      name: '',
+      renderId: 21,
+      renderColor: 11,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
+      direction: 'down',
+      spawnedAt: new Date().toISOString(),
+      expiresAt: '2099-12-31T23:59:59.999Z',
+      presetKey: '토끼',
+    };
 
-    // 만료 스윕(영구 만료 시각 이후)에도 야생 몬스터는 제거되지 않는다.
-    const removed = service.removeExpiredMonsters(Date.UTC(2100, 0, 1));
-    expect(removed.every((monster) => monster.presetKey === undefined)).toBe(
-      true,
-    );
+    (service as any).monsters.set(staleMonster.id, staleMonster);
 
-    const rabbitPreset = MONSTER_POPULATION_PRESETS.find(
-      (preset) => preset.name === '토끼',
-    )!;
-    const rabbits = getWildMonsters(service).filter(
-      (monster) => monster.presetKey === rabbitPreset.name,
-    );
-    expect(rabbits.length).toBe(rabbitPreset.count);
+    const removed = service.removeExpiredMonsters();
 
-    // 한 마리를 잡으면 부족분이 다음 주기에 다시 채워진다.
-    service.removeMonster(rabbits[0].id);
-    expect(
-      getWildMonsters(service).filter(
-        (monster) => monster.presetKey === rabbitPreset.name,
-      ).length,
-    ).toBe(rabbitPreset.count - 1);
-
-    let now = Date.UTC(2026, 1, 1, 0, 0, 0);
-    for (let tick = 0; tick < 10; tick += 1) {
-      service.maintainMonsterPopulation(now);
-      now += 600;
-    }
-
-    expect(
-      getWildMonsters(service).filter(
-        (monster) => monster.presetKey === rabbitPreset.name,
-      ).length,
-    ).toBe(rabbitPreset.count);
+    expect(removed).toContainEqual(staleMonster);
+    expect(getWildMonsters(service)).toHaveLength(0);
   });
 
   it('moves monsters without directional bias (no top-right drift)', () => {
@@ -175,12 +106,12 @@ describe('ChannelService monster spawn limit', () => {
       getNextMonsterPosition: (monster: ChannelMonster) => ChannelMonster | null;
     };
 
-    const SAMPLE = 600;
-    const STEPS = 250;
+    const sample = 600;
+    const steps = 250;
     let sumTileX = 0;
     let sumTileY = 0;
 
-    for (let n = 0; n < SAMPLE; n += 1) {
+    for (let n = 0; n < sample; n += 1) {
       const start = internals.getRandomWalkablePosition()!;
       let monster: ChannelMonster = {
         id: `walker-${n}`,
@@ -194,7 +125,7 @@ describe('ChannelService monster spawn limit', () => {
         expiresAt: '',
       };
 
-      for (let step = 0; step < STEPS; step += 1) {
+      for (let step = 0; step < steps; step += 1) {
         const next = internals.getNextMonsterPosition(monster);
         if (next) {
           monster = next;
@@ -205,11 +136,9 @@ describe('ChannelService monster spawn limit', () => {
       sumTileY += monster.y / TILE_SIZE;
     }
 
-    const centroidTileX = sumTileX / SAMPLE;
-    const centroidTileY = sumTileY / SAMPLE;
+    const centroidTileX = sumTileX / sample;
+    const centroidTileY = sumTileY / sample;
 
-    // 편향이 없으면 무리의 무게중심이 맵 중심(약 72, 82) 부근에 머문다.
-    // 우측 상단 쏠림이면 X가 크게 증가하고 Y가 크게 감소한다(편향 시 약 93, 41).
     expect(centroidTileX).toBeGreaterThan(58);
     expect(centroidTileX).toBeLessThan(88);
     expect(centroidTileY).toBeGreaterThan(62);
@@ -223,8 +152,8 @@ describe('ChannelService monster spawn limit', () => {
       displayName: 'tester-character',
       likeCount: 0,
       isGuest: false,
-      x: 70 * 24,
-      y: 122 * 24,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
       direction: 'down',
       connectedAt: new Date().toISOString(),
       renderState: {
@@ -240,21 +169,21 @@ describe('ChannelService monster spawn limit', () => {
         attackExpiresAt: null,
       },
     } as any;
-    const hitMonster = {
+    const hitMonster: ChannelMonster = {
       id: 'monster-hit',
       name: 'monster-hit',
       renderId: 1,
       renderColor: 0,
-      x: 70 * 24,
-      y: 123 * 24,
+      x: 70 * TILE_SIZE,
+      y: 123 * TILE_SIZE,
       direction: 'down',
       spawnedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 30_000).toISOString(),
     };
-    const farMonster = {
+    const farMonster: ChannelMonster = {
       ...hitMonster,
       id: 'monster-far',
-      y: 125 * 24,
+      y: 125 * TILE_SIZE,
     };
 
     (service as any).participants.set(participant.id, participant);
@@ -280,8 +209,8 @@ describe('ChannelService monster spawn limit', () => {
       displayName: 'tester-character',
       likeCount: 0,
       isGuest: false,
-      x: 70 * 24,
-      y: 122 * 24,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
       direction: 'down',
       connectedAt: new Date().toISOString(),
     } as any;

@@ -5,6 +5,7 @@ import { inflateSync } from 'node:zlib';
 import { disabledPositions } from '../assets/object/330_disabled_xy';
 
 export type MoveDirection = 'up' | 'down' | 'left' | 'right';
+export type ChannelKey = '330' | '45000';
 
 /**
  * 채널 하나에 대응하는 맵 설정. 맵을 바꾸려면 cmpName/리스폰 좌표만 교체하면 된다.
@@ -12,6 +13,8 @@ export type MoveDirection = 'up' | 'down' | 'left' | 'right';
  * 런타임 로딩에 성공하면 .cmp 헤더 값으로 대체된다.
  */
 export interface MapConfig {
+  channelKey: ChannelKey;
+  channelLabel: string;
   mapName: string;
   cmpName: string;
   tileSize: number;
@@ -23,6 +26,8 @@ export interface MapConfig {
 
 /** 부여성(맵 330) 설정. 현재 단일 채널이 사용하는 기본 맵. */
 export const BUYEO_MAP_CONFIG: MapConfig = {
+  channelKey: '330',
+  channelLabel: '부여성',
   mapName: 'Ba000330.map',
   cmpName: 'Ba000330.cmp',
   tileSize: 24,
@@ -31,6 +36,38 @@ export const BUYEO_MAP_CONFIG: MapConfig = {
   respawnCenterTileX: 71,
   respawnCenterTileY: 130,
 };
+
+export const GOGYUNDO_MAP_CONFIG: MapConfig = {
+  channelKey: '45000',
+  channelLabel: '고균도',
+  mapName: 'Ba045000.map',
+  cmpName: 'Ba045000.cmp',
+  tileSize: 24,
+  width: 220,
+  height: 200,
+  respawnCenterTileX: 110,
+  respawnCenterTileY: 100,
+};
+
+export const DEFAULT_CHANNEL_KEY: ChannelKey = BUYEO_MAP_CONFIG.channelKey;
+export const CHANNEL_MAP_CONFIGS = [
+  BUYEO_MAP_CONFIG,
+  GOGYUNDO_MAP_CONFIG,
+] as const satisfies readonly MapConfig[];
+
+export function normalizeChannelKey(value: unknown): ChannelKey {
+  const rawChannelKey = Array.isArray(value) ? value[0] : value;
+  const channelKey =
+    rawChannelKey === 'buyeo'
+      ? BUYEO_MAP_CONFIG.channelKey
+      : rawChannelKey === 'gogyundo'
+        ? GOGYUNDO_MAP_CONFIG.channelKey
+        : rawChannelKey;
+
+  return CHANNEL_MAP_CONFIGS.some((config) => config.channelKey === channelKey)
+    ? (channelKey as ChannelKey)
+    : DEFAULT_CHANNEL_KEY;
+}
 
 const CDN_BASE = (process.env.CDN_URL ?? 'https://d9dw0d9hih79y.cloudfront.net').replace(/\/$/, '');
 const TILE_DAT_URL = `${CDN_BASE}/data/dat/TILE.DAT`;
@@ -125,9 +162,13 @@ export class MapCollision {
 /** `.cmp` 미로딩 시 사용하는 동기 폴백. 부여성(330)의 추출 좌표만 반영(엣지 없음). */
 export function buildFallbackCollision(config: MapConfig): MapCollision {
   const noMove = new Set<number>();
-  for (const position of disabledPositions) {
-    noMove.add(position.y * config.width + position.x);
+
+  if (config.channelKey === BUYEO_MAP_CONFIG.channelKey) {
+    for (const position of disabledPositions) {
+      noMove.add(position.y * config.width + position.x);
+    }
   }
+
   return new MapCollision(config.width, config.height, noMove, new Map());
 }
 
@@ -173,8 +214,9 @@ interface CmpData {
 }
 
 /**
- * `.cmp` 충돌 파일. 헤더 = magic[4]("DMAP" 또는 "CMAP") + u16le width + u16le height,
- * 이후 zlib payload. inflate 결과는 width*height*12B, 셀 = {u32le tile, u32le no_move, u32le object}.
+ * `.cmp` 충돌 파일. 헤더 = magic[4]("DMAP" 또는 "CMAP") + u16le width + u16le height.
+ * payload 셀은 맵에 따라 12B({u32 tile, u32 no_move, u32 object}) 또는
+ * 6B({u16 tile, u16 no_move, u16 object}) little-endian 변형이 있다.
  */
 function parseCmp(bytes: Uint8Array): CmpData {
   const reader = new BinaryReader(bytes);
@@ -186,20 +228,31 @@ function parseCmp(bytes: Uint8Array): CmpData {
   const width = reader.u16le(4);
   const height = reader.u16le(6);
   const payload = inflateSync(Buffer.from(bytes.subarray(8)));
-  const expectedLength = width * height * 12;
-  if (payload.length !== expectedLength) {
+  const cellCount = width * height;
+  const stride =
+    payload.length === cellCount * 12 ? 12 : payload.length === cellCount * 6 ? 6 : 0;
+  if (stride === 0) {
     throw new Error(`Unexpected CMP payload size: ${payload.length} for ${width}x${height}`);
   }
 
   const payloadReader = new BinaryReader(payload);
-  const cells = new Array<{ object: number; noMove: number }>(width * height);
+  const cells = new Array<{ object: number; noMove: number }>(cellCount);
   let pos = 0;
   for (let i = 0; i < cells.length; i += 1) {
+    if (stride === 12) {
+      cells[i] = {
+        noMove: payloadReader.u32le(pos + 4),
+        object: payloadReader.u32le(pos + 8),
+      };
+      pos += 12;
+      continue;
+    }
+
     cells[i] = {
-      noMove: payloadReader.u32le(pos + 4),
-      object: payloadReader.u32le(pos + 8),
+      noMove: payloadReader.u16le(pos + 2),
+      object: payloadReader.u16le(pos + 4),
     };
-    pos += 12;
+    pos += 6;
   }
 
   return { width, height, cells };

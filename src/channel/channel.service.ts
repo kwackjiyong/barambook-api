@@ -125,6 +125,8 @@ export class ChannelService {
   // 개체수 유지 몬스터는 만료되지 않는 영구 객체로 취급한다.
   private static readonly PERSISTENT_MONSTER_EXPIRES_AT =
     '2099-12-31T23:59:59.999Z';
+  private static readonly MONSTER_SPAWN_DISABLED_ERROR =
+    '몬스터 소환 기능은 현재 비활성화되어 있습니다.';
   private static readonly MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
     [
       { name: '토끼', renderId: 21, renderColor: 11, count: 10 },
@@ -170,6 +172,7 @@ export class ChannelService {
   private readonly collision: MapCollision;
   private readonly respawnCenterTileX: number;
   private readonly respawnCenterTileY: number;
+  private readonly monsterPopulationPresets: MonsterPopulationPreset[];
 
   constructor(
     config: MapConfig = BUYEO_MAP_CONFIG,
@@ -178,6 +181,7 @@ export class ChannelService {
     this.collision = collision;
     this.respawnCenterTileX = config.respawnCenterTileX;
     this.respawnCenterTileY = config.respawnCenterTileY;
+    this.monsterPopulationPresets = [];
   }
 
   private get maxTileX(): number {
@@ -447,10 +451,7 @@ export class ChannelService {
     };
   }
 
-  spawnMonster(
-    socketId?: string | null,
-    requestedName?: string,
-  ): ChannelMonsterSpawnResult {
+  spawnMonster(socketId?: string | null): ChannelMonsterSpawnResult {
     this.pruneExpiredMonsters();
 
     const participant = socketId ? this.participants.get(socketId) ?? null : null;
@@ -467,13 +468,9 @@ export class ChannelService {
       };
     }
 
-    if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
-      return {
-        error: '최대 120마리까지만 소환가능합니다.',
-      };
-    }
-
-    return { monster: this.createMonster(this.getMonsterSpawnPosition(), requestedName) };
+    return {
+      error: ChannelService.MONSTER_SPAWN_DISABLED_ERROR,
+    };
   }
 
   removeMonster(monsterId: string): ChannelMonster | null {
@@ -488,6 +485,12 @@ export class ChannelService {
     const removed: ChannelMonster[] = [];
 
     for (const monster of this.monsters.values()) {
+      if (this.shouldRemovePopulationMonster(monster)) {
+        this.detachMonster(monster.id);
+        removed.push(monster);
+        continue;
+      }
+
       if (this.isPersistentMonster(monster)) {
         continue;
       }
@@ -522,7 +525,7 @@ export class ChannelService {
 
     const spawned: ChannelMonster[] = [];
 
-    for (const preset of ChannelService.MONSTER_POPULATION_PRESETS) {
+    for (const preset of this.monsterPopulationPresets) {
       let deficit = preset.count - this.countMonsterPopulation(preset.name);
 
       while (
@@ -779,6 +782,11 @@ export class ChannelService {
 
   private pruneExpiredMonsters(now = Date.now()) {
     for (const monster of this.monsters.values()) {
+      if (this.shouldRemovePopulationMonster(monster)) {
+        this.detachMonster(monster.id);
+        continue;
+      }
+
       if (this.isPersistentMonster(monster)) {
         continue;
       }
@@ -792,6 +800,10 @@ export class ChannelService {
 
   private isPersistentMonster(monster: ChannelMonster): boolean {
     return typeof monster.presetKey === 'string';
+  }
+
+  private shouldRemovePopulationMonster(monster: ChannelMonster): boolean {
+    return this.monsterPopulationPresets.length === 0 && typeof monster.presetKey === 'string';
   }
 
   private isMonsterSpawnOperator(participant: ChannelParticipant) {
