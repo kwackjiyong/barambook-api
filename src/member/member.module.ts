@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { UserSchema } from '../user/user.schema';
-import { MemberController } from './member.controller';
 import { MemberSchema } from './member.schema';
 import { MemberSessionGuard } from './member-session.guard';
 import { MemberService } from './member.service';
@@ -9,15 +7,11 @@ import { MemberService } from './member.service';
 @Module({
   imports: [
     MongooseModule.forFeature(
-      [
-        { name: 'members', schema: MemberSchema },
-        { name: 'users', schema: UserSchema },
-      ],
+      [{ name: 'sso_members', schema: MemberSchema }],
       'barambook',
     ),
   ],
-  controllers: [MemberController],
   providers: [MemberService, MemberSessionGuard],
-  exports: [MemberService],
+  exports: [MemberService, MemberSessionGuard],
 })
 export class MemberModule {}

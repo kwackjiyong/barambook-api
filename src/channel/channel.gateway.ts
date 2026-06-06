@@ -73,7 +73,7 @@ export class ChannelGateway
       const member =
         await this.memberService.findAuthenticatedMember(sessionToken);
       const likeCount = await this.userService.getLikeCountForName(
-        member.representativeCharacterName ?? member.accountId,
+        member.nickname ?? member.representativeCharacterName ?? member.accountId,
       );
       const previousSocketId = this.channelService.findSocketIdByAccountId(
         member.accountId,

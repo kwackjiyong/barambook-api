@@ -10,6 +10,7 @@ import { MapModule } from './map/map.module';
 import { RendererModule } from './renderer/renderer.module';
 import * as dotenv from 'dotenv';
 import { MemberModule } from './member/member.module';
+import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ChannelModule } from './channel/channel.module';
 
@@ -35,6 +36,7 @@ dotenv.config();
     MapModule,
     RendererModule,
     MemberModule,
+    AuthModule,
     UserModule,
     ChannelModule,
   ],

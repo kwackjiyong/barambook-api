@@ -50,7 +50,7 @@ describe('ChannelService monster spawn limit', () => {
 
   it('allows the 바람비전 operator to spawn up to the shared 120 monster limit', () => {
     service.addParticipant(
-      createMember('tester', '\uBC14\uB78C\uBE44\uC804'),
+      createMember('tester', 'tester-character', true),
       'socket-1',
       0,
     );
@@ -71,9 +71,7 @@ describe('ChannelService monster spawn limit', () => {
     const result = service.spawnMonster('socket-1');
 
     expect(result.monster).toBeUndefined();
-    expect(result.error).toBe(
-      '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
-    );
+    expect(result.error).toBe('몬스터 소환은 운영자만 사용할 수 있습니다.');
   });
 
   it('blocks guests from spawning monsters', () => {
@@ -82,9 +80,7 @@ describe('ChannelService monster spawn limit', () => {
     const result = service.spawnMonster('guest-socket-1');
 
     expect(result.monster).toBeUndefined();
-    expect(result.error).toBe(
-      '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
-    );
+    expect(result.error).toBe('몬스터 소환은 운영자만 사용할 수 있습니다.');
   });
   it('auto-maintains the configured wild monster population on walkable tiles', () => {
     fillMonsterPopulation(service);
@@ -312,12 +308,17 @@ describe('ChannelService monster spawn limit', () => {
   });
 });
 
-function createMember(accountId: string, representativeCharacterName?: string) {
+function createMember(
+  accountId: string,
+  representativeCharacterName?: string,
+  isOperator = false,
+) {
   return {
     accountId,
     passwordHash: 'hash',
     MSWID: `${accountId}-mswid`,
     verifiedAt: new Date(),
+    isOperator,
     representativeCharacterName:
       representativeCharacterName ?? `${accountId}-character`,
   } as Member;

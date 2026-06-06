@@ -60,6 +60,7 @@ export interface ChannelParticipant {
   displayName: string;
   likeCount: number;
   isGuest: boolean;
+  isOperator?: boolean;
   isJumping?: boolean;
   x: number;
   y: number;
@@ -129,7 +130,6 @@ export class ChannelService {
   // 한 타일 이동 간격(클수록 느리게 움직인다).
   private static readonly MONSTER_MOVE_INTERVAL_MS = 2000;
   private static readonly MONSTER_MOVE_STAGGER_MS = 1800;
-  private static readonly MONSTER_SPAWN_OPERATOR_NAME = '바람비전';
   private static readonly MAX_MONSTERS = 120;
   // 야생 몬스터 개체수 유지 설정
   private static readonly MONSTER_POPULATION_REFILL_INTERVAL_MS = 500;
@@ -439,7 +439,7 @@ export class ChannelService {
 
     if (participant && !this.isMonsterSpawnOperator(participant)) {
       return {
-        error: '몬스터 소환은 닉네임 "바람비전" 운영자만 사용할 수 있습니다.',
+        error: '몬스터 소환은 운영자만 사용할 수 있습니다.',
       };
     }
 
@@ -565,9 +565,13 @@ export class ChannelService {
     return {
       id: socketId,
       accountId: member.accountId,
-      displayName: member.representativeCharacterName ?? member.accountId,
+      displayName:
+        member.nickname ??
+        member.representativeCharacterName ??
+        member.accountId,
       likeCount,
       isGuest: false,
+      isOperator: member.isOperator === true,
       x: position.x,
       y: position.y,
       direction: 'down',
@@ -767,11 +771,7 @@ export class ChannelService {
   }
 
   private isMonsterSpawnOperator(participant: ChannelParticipant) {
-    return (
-      participant.isGuest !== true &&
-      participant.displayName.trim() ===
-        ChannelService.MONSTER_SPAWN_OPERATOR_NAME
-    );
+    return participant.isGuest !== true && participant.isOperator === true;
   }
 
   private detachMonster(monsterId: string) {
