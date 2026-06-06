@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash, randomBytes } from 'crypto';
 import { Model } from 'mongoose';
@@ -15,6 +19,10 @@ export interface AuthenticatedSession {
   sessionToken: string;
   member: Member;
 }
+
+// 닉네임 변경 주기 제한: 마지막 변경으로부터 7일
+const NICKNAME_CHANGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class MemberService {
@@ -123,11 +131,53 @@ export class MemberService {
   async updateNickname(member: Member, nickname: string): Promise<Member> {
     const next = nickname.trim();
 
+    const current = await this.memberModel
+      .findOne({ accountId: member.accountId })
+      .select({ nickname: 1, nicknameUpdatedAt: 1 })
+      .exec();
+
+    // 현재 닉네임과 동일하면 변경 없이 통과 (주기 제한·중복 검사 미적용)
+    if (current?.nickname === next) {
+      member.nickname = next;
+      return member;
+    }
+
+    // 1) 변경 주기 제한 (마지막 변경으로부터 7일)
+    const lastChanged = current?.nicknameUpdatedAt;
+    if (lastChanged) {
+      const elapsed = Date.now() - lastChanged.getTime();
+      if (elapsed < NICKNAME_CHANGE_INTERVAL_MS) {
+        const remainingDays = Math.ceil(
+          (NICKNAME_CHANGE_INTERVAL_MS - elapsed) / DAY_MS,
+        );
+        throw new BadRequestException(
+          `닉네임은 7일에 한 번만 변경할 수 있습니다. ${remainingDays}일 후에 다시 변경할 수 있습니다.`,
+        );
+      }
+    }
+
+    // 2) 중복 닉네임 검사 (대소문자 무시, 본인 제외)
+    const duplicate = await this.memberModel
+      .findOne({ nickname: next, accountId: { $ne: member.accountId } })
+      .collation({ locale: 'en', strength: 2 })
+      .select({ _id: 1 })
+      .exec();
+
+    if (duplicate) {
+      throw new BadRequestException('이미 사용 중인 닉네임입니다.');
+    }
+
+    const now = new Date();
+
     await this.memberModel
-      .updateOne({ accountId: member.accountId }, { $set: { nickname: next } })
+      .updateOne(
+        { accountId: member.accountId },
+        { $set: { nickname: next, nicknameUpdatedAt: now } },
+      )
       .exec();
 
     member.nickname = next;
+    member.nicknameUpdatedAt = now;
     return member;
   }
 

@@ -21,6 +21,10 @@ export class Member extends Document {
   @Prop()
   nickname?: string;
 
+  // 마지막 닉네임 변경 시각 (변경 주기 제한용)
+  @Prop()
+  nicknameUpdatedAt?: Date;
+
   @Prop()
   email?: string;
 
