@@ -5,7 +5,15 @@ import { inflateSync } from 'node:zlib';
 import { disabledPositions } from '../assets/object/330_disabled_xy';
 
 export type MoveDirection = 'up' | 'down' | 'left' | 'right';
-export type ChannelKey = '39750' | '330' | '45000' | '2028' | '45183';
+export type ChannelKey =
+  | '39750'
+  | '330'
+  | '45000'
+  | '2028'
+  | '45183'
+  | '6523'
+  | '800'
+  | '2080';
 
 /**
  * 채널 하나에 대응하는 맵 설정. 맵을 바꾸려면 cmpName/리스폰 좌표만 교체하면 된다.
@@ -92,6 +100,45 @@ export const GOGYUNDO_OBSERVATORY_MAP_CONFIG: MapConfig = {
   respawnCenterTileY: 10,
 };
 
+/** 오작교(맵 6523) 설정. 가로로 긴 맵(100×30). */
+export const OJAKGYO_MAP_CONFIG: MapConfig = {
+  channelKey: '6523',
+  channelLabel: '오작교',
+  mapName: 'Ba006523.map',
+  cmpName: 'Ba006523.cmp',
+  tileSize: 24,
+  width: 100,
+  height: 30,
+  respawnCenterTileX: 50,
+  respawnCenterTileY: 13,
+};
+
+/** 부여동부0(맵 800) 설정. 대형 맵(250×180). */
+export const BUYEO_EAST_MAP_CONFIG: MapConfig = {
+  channelKey: '800',
+  channelLabel: '부여동부0',
+  mapName: 'Ba000800.map',
+  cmpName: 'Ba000800.cmp',
+  tileSize: 24,
+  width: 250,
+  height: 180,
+  respawnCenterTileX: 125,
+  respawnCenterTileY: 90,
+};
+
+/** 갑판00(맵 2080) 설정. 세로로 긴 맵(30×60). */
+export const DECK_MAP_CONFIG: MapConfig = {
+  channelKey: '2080',
+  channelLabel: '갑판00',
+  mapName: 'Ba002080.map',
+  cmpName: 'Ba002080.cmp',
+  tileSize: 24,
+  width: 30,
+  height: 60,
+  respawnCenterTileX: 15,
+  respawnCenterTileY: 30,
+};
+
 export const DEFAULT_CHANNEL_KEY: ChannelKey = SUNJE_MAP_CONFIG.channelKey;
 export const CHANNEL_MAP_CONFIGS = [
   SUNJE_MAP_CONFIG,
@@ -99,6 +146,9 @@ export const CHANNEL_MAP_CONFIGS = [
   GOGYUNDO_MAP_CONFIG,
   NORTH_POLE_MAP_CONFIG,
   GOGYUNDO_OBSERVATORY_MAP_CONFIG,
+  OJAKGYO_MAP_CONFIG,
+  BUYEO_EAST_MAP_CONFIG,
+  DECK_MAP_CONFIG,
 ] as const satisfies readonly MapConfig[];
 
 export function normalizeChannelKey(value: unknown): ChannelKey {
