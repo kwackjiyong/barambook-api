@@ -234,6 +234,10 @@ export class ChannelService {
     return this.socketIdsByAccountId.get(accountId) ?? null;
   }
 
+  getParticipantCount(): number {
+    return this.participants.size;
+  }
+
   findGuestSocketIdByIp(ipAddress: string): string | null {
     return this.guestSocketIdsByIp.get(ipAddress) ?? null;
   }

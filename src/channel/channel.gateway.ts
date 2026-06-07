@@ -104,6 +104,7 @@ export class ChannelGateway
         channelService.getBootstrapPayload(client.id),
       );
       client.to(roomName).emit('channel:participant-joined', participant);
+      this.broadcastPopulations();
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       this.logger.warn(`Falling back to guest channel access: ${client.id}`);
@@ -120,6 +121,7 @@ export class ChannelGateway
       this.server.to(this.getRoomName(channelKey)).emit('channel:participant-left', {
         participantId: removed.id,
       });
+      this.broadcastPopulations();
     }
   }
 
@@ -286,6 +288,25 @@ export class ChannelGateway
       channelService.getBootstrapPayload(client.id),
     );
     client.to(roomName).emit('channel:participant-joined', participant);
+    this.broadcastPopulations();
+  }
+
+  private getChannelPopulations(): Record<string, number> {
+    const populations: Record<string, number> = {};
+
+    for (const [channelKey, channelService] of this.channelWorldsService.entries()) {
+      populations[channelKey] = channelService.getParticipantCount();
+    }
+
+    return populations;
+  }
+
+  private broadcastPopulations(): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.emit('channel:populations', this.getChannelPopulations());
   }
 
   private extractClientIp(client: Socket): string | null {
