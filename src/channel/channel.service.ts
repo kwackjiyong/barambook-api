@@ -101,6 +101,7 @@ interface MovePayload {
   dy?: number;
   direction?: ChannelDirection;
   isJumping?: boolean;
+  isRiding?: boolean;
 }
 
 @Injectable()
@@ -110,6 +111,8 @@ export class ChannelService {
   private static readonly MAX_MESSAGE_LENGTH = 50;
   private static readonly MAX_MESSAGE_HISTORY = 50;
   private static readonly MOVE_COOLDOWN_MS = 240;
+  // 말타기(클라이언트의 지속 모션 'h') 상태에서는 이동 쿨다운을 절반으로 줄여 2배 속도로 움직인다.
+  private static readonly RIDE_MOVE_COOLDOWN_MS = 120;
   private static readonly AUTH_CHAT_COOLDOWN_MS = 200;
   private static readonly GUEST_CHAT_COOLDOWN_MS = 1000;
   private static readonly CHAT_BUBBLE_LIFETIME_MS = 6 * 1000;
@@ -274,13 +277,17 @@ export class ChannelService {
       current.direction,
     );
     const isJumping = payload.isJumping === true;
+    const isRiding = payload.isRiding === true;
+    const moveCooldownMs = isRiding
+      ? ChannelService.RIDE_MOVE_COOLDOWN_MS
+      : ChannelService.MOVE_COOLDOWN_MS;
     const now = Date.now();
     const lastMovedAt = this.lastMovedAt.get(socketId) ?? 0;
     const isMoveRequested = dx !== 0 || dy !== 0;
     const isDirectionChanged = direction !== current.direction;
     const isJumpStateChanged = isJumping !== (current.isJumping === true);
 
-    if (now - lastMovedAt < ChannelService.MOVE_COOLDOWN_MS) {
+    if (now - lastMovedAt < moveCooldownMs) {
       if (!isDirectionChanged && !isJumpStateChanged) {
         return null;
       }

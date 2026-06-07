@@ -20,6 +20,7 @@ interface MoveMessageBody {
   dy?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   isJumping?: boolean;
+  isRiding?: boolean;
 }
 
 interface ChatMessageBody {
