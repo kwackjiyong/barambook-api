@@ -13,7 +13,9 @@ export type ChannelKey =
   | '45183'
   | '6523'
   | '800'
-  | '2080';
+  | '2080'
+  | '6571'
+  | '67000';
 
 /**
  * 채널 하나에 대응하는 맵 설정. 맵을 바꾸려면 cmpName/리스폰 좌표만 교체하면 된다.
@@ -139,6 +141,32 @@ export const DECK_MAP_CONFIG: MapConfig = {
   respawnCenterTileY: 30,
 };
 
+/** 달맞이고개(맵 6571) 설정. 가로로 긴 맵(200×40). */
+export const DALMAJI_MAP_CONFIG: MapConfig = {
+  channelKey: '6571',
+  channelLabel: '달맞이고개',
+  mapName: 'Ba006571.map',
+  cmpName: 'Ba006571.cmp',
+  tileSize: 24,
+  width: 200,
+  height: 40,
+  respawnCenterTileX: 100,
+  respawnCenterTileY: 20,
+};
+
+/** 너구리마을(맵 67000) 설정. 소형 맵(40×30). */
+export const RACCOON_VILLAGE_MAP_CONFIG: MapConfig = {
+  channelKey: '67000',
+  channelLabel: '너구리마을',
+  mapName: 'Ba067000.map',
+  cmpName: 'Ba067000.cmp',
+  tileSize: 24,
+  width: 40,
+  height: 30,
+  respawnCenterTileX: 20,
+  respawnCenterTileY: 15,
+};
+
 export const DEFAULT_CHANNEL_KEY: ChannelKey = SUNJE_MAP_CONFIG.channelKey;
 export const CHANNEL_MAP_CONFIGS = [
   SUNJE_MAP_CONFIG,
@@ -149,6 +177,8 @@ export const CHANNEL_MAP_CONFIGS = [
   OJAKGYO_MAP_CONFIG,
   BUYEO_EAST_MAP_CONFIG,
   DECK_MAP_CONFIG,
+  DALMAJI_MAP_CONFIG,
+  RACCOON_VILLAGE_MAP_CONFIG,
 ] as const satisfies readonly MapConfig[];
 
 export function normalizeChannelKey(value: unknown): ChannelKey {
