@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
   ValidationPipe,
@@ -16,6 +17,7 @@ import { MemberSessionGuard } from '../member/member-session.guard';
 import { Member } from '../member/member.schema';
 import { MemberService } from '../member/member.service';
 import { CreateTradeListingDto } from './dto/create-trade-listing.dto';
+import { QueryTradeListingsDto } from './dto/query-trade-listings.dto';
 import { UpdateTradeStatusDto } from './dto/update-trade-status.dto';
 import { TradeService } from './trade.service';
 
@@ -33,9 +35,31 @@ export class TradeController {
   ) {}
 
   @Get()
-  async findListings(@Req() req: TradeRequest) {
+  async findListings(
+    @Req() req: TradeRequest,
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryTradeListingsDto,
+  ) {
     const member = await this.findOptionalMember(req);
-    return this.tradeService.findListings(member);
+    return this.tradeService.findListings(query, member);
+  }
+
+  // 등록 폼/필터에서 선택할 염색약 목록 (무기염색약/의상염색약)
+  @Get('dyes')
+  getDyeOptions() {
+    return this.tradeService.getDyeOptions();
+  }
+
+  @Get(':id')
+  async findListingDetail(@Param('id') id: string, @Req() req: TradeRequest) {
+    const member = await this.findOptionalMember(req);
+    return this.tradeService.findListingDetail(id, member);
   }
 
   @Post()

@@ -122,6 +122,19 @@ export class MemberService {
     return member;
   }
 
+  // 거래 게시자 공개 프로필(닉네임/가입일 등) 조회용
+  async findByAccountId(accountId: string): Promise<Member | null> {
+    return this.memberModel
+      .findOne({ accountId })
+      .select({
+        accountId: 1,
+        nickname: 1,
+        maplestoryWorldId: 1,
+        createdAt: 1,
+      })
+      .exec();
+  }
+
   async logout(sessionToken: string): Promise<void> {
     const sessionTokenHash = this.hashSessionToken(sessionToken);
 
