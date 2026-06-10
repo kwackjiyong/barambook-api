@@ -17,6 +17,7 @@ import { Request, Response } from 'express';
 import { MemberSessionGuard } from '../member/member-session.guard';
 import { Member } from '../member/member.schema';
 import { MemberService, SsoProfile } from '../member/member.service';
+import { UpdateMaplestoryWorldIdDto } from './dto/update-maplestory-world-id.dto';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { SaveNextGuard } from './save-next.guard';
 
@@ -117,6 +118,28 @@ export class AuthController {
     return this.serializeMember(member);
   }
 
+  @Patch('/maplestory-world-id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  async updateMaplestoryWorldId(
+    @Req() req: AuthenticatedRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: UpdateMaplestoryWorldIdDto,
+  ) {
+    const member = await this.memberService.updateMaplestoryWorldId(
+      req.member as Member,
+      dto.maplestoryWorldId,
+    );
+
+    return this.serializeMember(member);
+  }
+
   private async completeSsoLogin(
     req: AuthenticatedRequest,
     res: Response,
@@ -147,6 +170,8 @@ export class AuthController {
       provider: member.provider,
       nickname: member.nickname ?? member.accountId,
       email: member.email,
+      discordId: member.discordId,
+      maplestoryWorldId: member.maplestoryWorldId,
       isOperator: member.isOperator === true,
       authenticated: true,
     };

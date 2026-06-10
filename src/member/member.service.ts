@@ -13,6 +13,7 @@ export interface SsoProfile {
   providerId: string;
   nickname: string;
   email?: string;
+  discordId?: string;
 }
 
 export interface AuthenticatedSession {
@@ -83,6 +84,10 @@ export class MemberService {
       member.isOperator = isOperator;
     }
 
+    if (profile.discordId) {
+      member.discordId = profile.discordId;
+    }
+
     const sessionToken = randomBytes(48).toString('hex');
     member.sessionTokenHash = this.hashSessionToken(sessionToken);
     member.lastLoginAt = new Date();
@@ -101,6 +106,8 @@ export class MemberService {
         provider: 1,
         nickname: 1,
         email: 1,
+        discordId: 1,
+        maplestoryWorldId: 1,
         isOperator: 1,
         representativeCharacterName: 1,
         lastLoginAt: 1,
@@ -178,6 +185,23 @@ export class MemberService {
 
     member.nickname = next;
     member.nicknameUpdatedAt = now;
+    return member;
+  }
+
+  async updateMaplestoryWorldId(
+    member: Member,
+    maplestoryWorldId: string,
+  ): Promise<Member> {
+    const next = maplestoryWorldId.trim();
+
+    await this.memberModel
+      .updateOne(
+        { accountId: member.accountId },
+        { $set: { maplestoryWorldId: next } },
+      )
+      .exec();
+
+    member.maplestoryWorldId = next;
     return member;
   }
 

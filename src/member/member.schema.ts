@@ -28,6 +28,12 @@ export class Member extends Document {
   @Prop()
   email?: string;
 
+  @Prop()
+  discordId?: string;
+
+  @Prop()
+  maplestoryWorldId?: string;
+
   // 서버 허용목록(OPERATOR_ACCOUNTS)으로만 부여되는 운영자 권한.
   @Prop({ default: false })
   isOperator: boolean;

@@ -28,6 +28,7 @@ export class DiscordStrategy extends PassportStrategy(Strategy, 'discord') {
       providerId: profile.id,
       nickname: profile.global_name || profile.username || '바람비전 유저',
       email: profile.email,
+      discordId: profile.username,
     };
 
     done(null, user);

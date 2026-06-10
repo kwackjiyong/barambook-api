@@ -13,6 +13,7 @@ import { MemberModule } from './member/member.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ChannelModule } from './channel/channel.module';
+import { TradeModule } from './trade/trade.module';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ dotenv.config();
     AuthModule,
     UserModule,
     ChannelModule,
+    TradeModule,
   ],
   controllers: [AppController],
   providers: [AppService],
