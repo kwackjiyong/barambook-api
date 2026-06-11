@@ -21,8 +21,5 @@ export class CharacterLike extends Document {
 
 export const CharacterLikeSchema = SchemaFactory.createForClass(CharacterLike);
 
-CharacterLikeSchema.index(
-  { ipHash: 1, likedDateKey: 1 },
-  { unique: true },
-);
+CharacterLikeSchema.index({ ipHash: 1, likedDateKey: 1 }, { unique: true });
 CharacterLikeSchema.index({ Name: 1, createdAt: -1 });

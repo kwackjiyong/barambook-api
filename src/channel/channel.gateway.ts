@@ -74,7 +74,9 @@ export class ChannelGateway
       const member =
         await this.memberService.findAuthenticatedMember(sessionToken);
       const likeCount = await this.userService.getLikeCountForName(
-        member.nickname ?? member.representativeCharacterName ?? member.accountId,
+        member.nickname ??
+          member.representativeCharacterName ??
+          member.accountId,
       );
       const previousSocketId = channelService.findSocketIdByAccountId(
         member.accountId,
@@ -114,13 +116,16 @@ export class ChannelGateway
 
   handleDisconnect(client: Socket): void {
     const channelKey = this.getClientChannelKey(client);
-    const removed =
-      this.channelWorldsService.get(channelKey).removeParticipant(client.id);
+    const removed = this.channelWorldsService
+      .get(channelKey)
+      .removeParticipant(client.id);
 
     if (removed) {
-      this.server.to(this.getRoomName(channelKey)).emit('channel:participant-left', {
-        participantId: removed.id,
-      });
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:participant-left', {
+          participantId: removed.id,
+        });
       this.broadcastPopulations();
     }
   }
@@ -294,7 +299,10 @@ export class ChannelGateway
   private getChannelPopulations(): Record<string, number> {
     const populations: Record<string, number> = {};
 
-    for (const [channelKey, channelService] of this.channelWorldsService.entries()) {
+    for (const [
+      channelKey,
+      channelService,
+    ] of this.channelWorldsService.entries()) {
       populations[channelKey] = channelService.getParticipantCount();
     }
 
@@ -371,7 +379,10 @@ export class ChannelGateway
         return;
       }
 
-      for (const [channelKey, channelService] of this.channelWorldsService.entries()) {
+      for (const [
+        channelKey,
+        channelService,
+      ] of this.channelWorldsService.entries()) {
         const removedMonsters = channelService.removeExpiredMonsters();
         const spawnedMonsters = channelService.maintainMonsterPopulation();
         const movedMonsters = channelService.moveMonsters();
@@ -386,7 +397,9 @@ export class ChannelGateway
         }
 
         if (movedMonsters.length > 0) {
-          this.server.to(roomName).emit('channel:monsters-moved', movedMonsters);
+          this.server
+            .to(roomName)
+            .emit('channel:monsters-moved', movedMonsters);
         }
       }
     }, 200);
@@ -397,9 +410,11 @@ export class ChannelGateway
     monster: ChannelMonster,
     reason: 'expired' | 'hit',
   ) {
-    this.server.to(this.getRoomName(channelKey)).emit('channel:monster-removed', {
-      monsterId: monster.id,
-      reason,
-    });
+    this.server
+      .to(this.getRoomName(channelKey))
+      .emit('channel:monster-removed', {
+        monsterId: monster.id,
+        reason,
+      });
   }
 }

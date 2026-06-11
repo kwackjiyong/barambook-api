@@ -108,10 +108,7 @@ export function cyclePalette(
 //
 // Mirrors palette resolution in renderer.ts. If you add or change a palette
 // lookup there, update this too.
-export function getRenderColorPeriod(
-  params: RenderParams,
-  cap = 32,
-): number {
+export function getRenderColorPeriod(params: RenderParams, cap = 32): number {
   const periods: number[] = [];
   const pushIf = (p: PaletteVariant | undefined) => {
     if (!p) return;

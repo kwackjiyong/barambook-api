@@ -465,7 +465,9 @@ export class ChannelService {
   spawnMonster(socketId?: string | null): ChannelMonsterSpawnResult {
     this.pruneExpiredMonsters();
 
-    const participant = socketId ? this.participants.get(socketId) ?? null : null;
+    const participant = socketId
+      ? (this.participants.get(socketId) ?? null)
+      : null;
 
     if (socketId && !participant) {
       return {
@@ -740,7 +742,9 @@ export class ChannelService {
       y: position.y,
       direction: 'down',
       spawnedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + ChannelService.MONSTER_LIFETIME_MS).toISOString(),
+      expiresAt: new Date(
+        now + ChannelService.MONSTER_LIFETIME_MS,
+      ).toISOString(),
     };
 
     this.registerMonster(monster, now);
@@ -814,7 +818,10 @@ export class ChannelService {
   }
 
   private shouldRemovePopulationMonster(monster: ChannelMonster): boolean {
-    return this.monsterPopulationPresets.length === 0 && typeof monster.presetKey === 'string';
+    return (
+      this.monsterPopulationPresets.length === 0 &&
+      typeof monster.presetKey === 'string'
+    );
   }
 
   private isMonsterSpawnOperator(participant: ChannelParticipant) {
@@ -1022,7 +1029,12 @@ export class ChannelService {
    * 한 칸 직선 이동이면 방향 엣지(오브젝트 벽)까지 검사하고,
    * 그 외(대각선 등 비정형 입력)는 목적지 칸의 통행 가능 여부만 본다.
    */
-  private canTraverse(fromX: number, fromY: number, dx: number, dy: number): boolean {
+  private canTraverse(
+    fromX: number,
+    fromY: number,
+    dx: number,
+    dy: number,
+  ): boolean {
     const fromTile = this.toTilePosition(fromX, fromY);
     const isSingleAxisStep = (dx === 0) !== (dy === 0);
 
@@ -1059,7 +1071,12 @@ export class ChannelService {
     const tileX = x / ChannelService.TILE_SIZE;
     const tileY = y / ChannelService.TILE_SIZE;
 
-    if (tileX < 0 || tileX > this.maxTileX || tileY < 0 || tileY > this.maxTileY) {
+    if (
+      tileX < 0 ||
+      tileX > this.maxTileX ||
+      tileY < 0 ||
+      tileY > this.maxTileY
+    ) {
       return null;
     }
 

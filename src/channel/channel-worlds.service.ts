@@ -2,7 +2,9 @@ import { ChannelService } from './channel.service';
 import type { ChannelKey } from './map-collision';
 
 export class ChannelWorldsService {
-  constructor(private readonly worlds: ReadonlyMap<ChannelKey, ChannelService>) {}
+  constructor(
+    private readonly worlds: ReadonlyMap<ChannelKey, ChannelService>,
+  ) {}
 
   get(channelKey: ChannelKey): ChannelService {
     const service = this.worlds.get(channelKey);

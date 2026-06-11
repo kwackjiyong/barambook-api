@@ -57,6 +57,19 @@ export class QueryTradeListingsDto {
   @Min(0)
   transformItemId?: number;
 
+  // 금전(전) 가격 범위 필터. 숫자로 적힌 가격만 대상이 된다.
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minPrice?: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxPrice?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(80)

@@ -17,6 +17,7 @@ import { Request, Response } from 'express';
 import { MemberSessionGuard } from '../member/member-session.guard';
 import { Member } from '../member/member.schema';
 import { MemberService, SsoProfile } from '../member/member.service';
+import { UpdateBaramNicknameDto } from './dto/update-baram-nickname.dto';
 import { UpdateMaplestoryWorldIdDto } from './dto/update-maplestory-world-id.dto';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { SaveNextGuard } from './save-next.guard';
@@ -129,6 +130,29 @@ export class AuthController {
     return this.serializeMember(member);
   }
 
+  // 바람의나라 캐릭터 닉네임 등록 (거래소 게시글 등록/요청에 필요)
+  @Patch('/baram-nickname')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  async updateBaramNickname(
+    @Req() req: AuthenticatedRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: UpdateBaramNicknameDto,
+  ) {
+    const member = await this.memberService.updateBaramNickname(
+      req.member as Member,
+      dto.baramNickname,
+    );
+
+    return this.serializeMember(member);
+  }
+
   @Patch('/maplestory-world-id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
@@ -190,6 +214,7 @@ export class AuthController {
       maplestoryWorldProfileName: member.maplestoryWorldProfileName,
       maplestoryWorldVerifiedAt:
         member.maplestoryWorldVerifiedAt?.toISOString(),
+      baramNickname: member.baramNickname,
       isOperator: member.isOperator === true,
       authenticated: true,
     };

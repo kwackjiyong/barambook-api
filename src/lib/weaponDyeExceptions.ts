@@ -74,8 +74,14 @@ function normalizeWeaponDyeHeightRanges(values: unknown) {
         return null;
       }
 
-      const normalizedStartY = Math.max(0, Math.trunc(Math.min(rawStartY, rawEndY)));
-      const normalizedEndY = Math.max(0, Math.trunc(Math.max(rawStartY, rawEndY)));
+      const normalizedStartY = Math.max(
+        0,
+        Math.trunc(Math.min(rawStartY, rawEndY)),
+      );
+      const normalizedEndY = Math.max(
+        0,
+        Math.trunc(Math.max(rawStartY, rawEndY)),
+      );
 
       return {
         startY: normalizedStartY,
@@ -130,22 +136,31 @@ export function createEmptyWeaponDyeExceptionFile(): WeaponDyeExceptionFile {
   };
 }
 
-function normalizeEntry(input?: Partial<WeaponDyeExceptionEntry> | null): WeaponDyeExceptionEntry {
+function normalizeEntry(
+  input?: Partial<WeaponDyeExceptionEntry> | null,
+): WeaponDyeExceptionEntry {
   return {
     paletteRows: toSortedUniquePaletteRows(input?.paletteRows),
     keepOriginalIndices: toSortedUniqueIndices(input?.keepOriginalIndices),
     forceDyeIndices: toSortedUniqueIndices(input?.forceDyeIndices),
-    forceDyeHeightRanges: normalizeWeaponDyeHeightRanges(input?.forceDyeHeightRanges),
+    forceDyeHeightRanges: normalizeWeaponDyeHeightRanges(
+      input?.forceDyeHeightRanges,
+    ),
     ...(typeof input?.note === 'string' && input.note.trim()
       ? { note: input.note.trim() }
       : {}),
   };
 }
 
-function normalizeFile(input?: Partial<WeaponDyeExceptionFile> | null): WeaponDyeExceptionFile {
+function normalizeFile(
+  input?: Partial<WeaponDyeExceptionFile> | null,
+): WeaponDyeExceptionFile {
   const empty = createEmptyWeaponDyeExceptionFile();
   const weapons = (input?.weapons ?? {}) as Partial<
-    Record<WeaponDyeWeaponType, Record<string, Partial<WeaponDyeExceptionEntry>>>
+    Record<
+      WeaponDyeWeaponType,
+      Record<string, Partial<WeaponDyeExceptionEntry>>
+    >
   >;
 
   const normalizeGroup = (weaponType: WeaponDyeWeaponType) => {
@@ -163,7 +178,8 @@ function normalizeFile(input?: Partial<WeaponDyeExceptionFile> | null): WeaponDy
   };
 
   return {
-    version: Number(input?.version) > 0 ? Number(input?.version) : empty.version,
+    version:
+      Number(input?.version) > 0 ? Number(input?.version) : empty.version,
     updatedAt:
       typeof input?.updatedAt === 'string' && input.updatedAt
         ? input.updatedAt
@@ -182,7 +198,9 @@ export function loadWeaponDyeExceptions() {
 
     if (stat.mtimeMs !== cachedMtimeMs) {
       cachedFile = normalizeFile(
-        JSON.parse(fs.readFileSync(DEFAULT_FILE_PATH, 'utf8')) as Partial<WeaponDyeExceptionFile>,
+        JSON.parse(
+          fs.readFileSync(DEFAULT_FILE_PATH, 'utf8'),
+        ) as Partial<WeaponDyeExceptionFile>,
       );
       cachedMtimeMs = stat.mtimeMs;
     }
@@ -202,7 +220,8 @@ export function applyWeaponDyeExceptionDecision(
   idx: number,
   y: number,
 ) {
-  const entry = loadWeaponDyeExceptions().weapons[weaponType]?.[String(weaponNum)];
+  const entry =
+    loadWeaponDyeExceptions().weapons[weaponType]?.[String(weaponNum)];
 
   if (!entry) {
     return fallbackUseOriginalPalette;

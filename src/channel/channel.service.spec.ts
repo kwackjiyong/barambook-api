@@ -5,7 +5,9 @@ const TILE_SIZE = 24;
 
 function getMonsters(service: ChannelService): ChannelMonster[] {
   return Array.from(
-    (service as unknown as { monsters: Map<string, ChannelMonster> }).monsters.values(),
+    (
+      service as unknown as { monsters: Map<string, ChannelMonster> }
+    ).monsters.values(),
   );
 }
 
@@ -47,7 +49,11 @@ describe('ChannelService', () => {
   });
 
   it('blocks non-operator members from spawning monsters', () => {
-    service.addParticipant(createMember('tester', 'tester-character'), 'socket-1', 0);
+    service.addParticipant(
+      createMember('tester', 'tester-character'),
+      'socket-1',
+      0,
+    );
 
     const result = service.spawnMonster('socket-1');
 
@@ -103,7 +109,9 @@ describe('ChannelService', () => {
   it('moves monsters without directional bias (no top-right drift)', () => {
     const internals = service as unknown as {
       getRandomWalkablePosition: () => { x: number; y: number } | null;
-      getNextMonsterPosition: (monster: ChannelMonster) => ChannelMonster | null;
+      getNextMonsterPosition: (
+        monster: ChannelMonster,
+      ) => ChannelMonster | null;
     };
 
     const sample = 600;

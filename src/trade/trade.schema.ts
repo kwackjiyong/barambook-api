@@ -1,17 +1,56 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type TradeType = 'sell' | 'buy';
 export type TradeStatus = 'open' | 'requested' | 'completed' | 'canceled';
 
 // 게임 아이템 타입 코드 (w:무기 a:갑옷 h:투구 r:반지 s:방패 p:보조, t/c/e:기타류)
-export const TRADE_ITEM_TYPES = ['w', 'a', 'h', 'r', 's', 'p', 't', 'c', 'e'] as const;
+export const TRADE_ITEM_TYPES = [
+  'w',
+  'a',
+  'h',
+  'r',
+  's',
+  'p',
+  't',
+  'c',
+  'e',
+] as const;
 export type TradeItemType = (typeof TRADE_ITEM_TYPES)[number];
 
 // 내구도 입력 대상 장비 타입
 export const EQUIP_ITEM_TYPES: TradeItemType[] = ['w', 'a', 'h', 'r', 's', 'p'];
 // 염색약/형상변환 적용 대상 타입
 export const DYEABLE_ITEM_TYPES: TradeItemType[] = ['w', 'a'];
+
+// 거래 요청자 정보 스냅샷. 게시글 하나에 여러 요청이 쌓일 수 있고
+// 게시자가 완료 처리 시 이 중 1명을 거래 상대로 선택한다.
+@Schema({ _id: false })
+export class TradeRequestEntry {
+  @Prop({ required: true })
+  requesterAccountId: string;
+
+  @Prop({ required: true })
+  requesterNickname: string;
+
+  @Prop()
+  requesterDiscordId?: string;
+
+  @Prop()
+  requesterEmail?: string;
+
+  @Prop()
+  requesterMaplestoryWorldId?: string;
+
+  @Prop()
+  requesterBaramNickname?: string;
+
+  @Prop({ required: true })
+  requestedAt: Date;
+}
+
+export const TradeRequestEntrySchema =
+  SchemaFactory.createForClass(TradeRequestEntry);
 
 @Schema({ timestamps: true, collection: 'trade_listings' })
 export class TradeListing extends Document {
@@ -69,12 +108,24 @@ export class TradeListing extends Document {
   @Prop({ required: true })
   ownerNickname: string;
 
-  @Prop({ required: true })
-  ownerDiscordId: string;
+  // 연락 수단. 디스코드 계정은 디스코드 ID, 구글 계정은 이메일을 쓴다.
+  @Prop()
+  ownerDiscordId?: string;
+
+  @Prop()
+  ownerEmail?: string;
 
   @Prop()
   ownerMaplestoryWorldId?: string;
 
+  @Prop()
+  ownerBaramNickname?: string;
+
+  // 진행 중인 거래 요청 목록 (요청 순서대로)
+  @Prop({ type: [TradeRequestEntrySchema], default: [] })
+  requests: TradeRequestEntry[];
+
+  // 완료 시 선택된 거래 상대 정보. (다중 요청 도입 전 단일 요청자 필드를 겸용)
   @Prop({ index: true })
   requesterAccountId?: string;
 
@@ -83,6 +134,9 @@ export class TradeListing extends Document {
 
   @Prop()
   requesterDiscordId?: string;
+
+  @Prop()
+  requesterEmail?: string;
 
   @Prop()
   requestedAt?: Date;
@@ -103,3 +157,53 @@ TradeListingSchema.index({ status: 1, createdAt: -1 });
 TradeListingSchema.index({ itemType: 1, status: 1, createdAt: -1 });
 TradeListingSchema.index({ ownerAccountId: 1, status: 1 });
 TradeListingSchema.index({ requesterAccountId: 1, status: 1 });
+TradeListingSchema.index({ 'requests.requesterAccountId': 1, status: 1 });
+
+// 거래 취소 이력. 주간 취소 횟수 제한(패널티) 판정에 사용한다.
+@Schema({ collection: 'trade_cancellations' })
+export class TradeCancellation extends Document {
+  @Prop({ required: true, index: true })
+  accountId: string;
+
+  @Prop({ type: Types.ObjectId, required: true })
+  listingId: Types.ObjectId;
+
+  // owner: 게시 취소, requester: 보낸 요청 취소
+  @Prop({ type: String, enum: ['owner', 'requester'], required: true })
+  role: 'owner' | 'requester';
+
+  @Prop({ required: true })
+  canceledAt: Date;
+}
+
+export const TradeCancellationSchema =
+  SchemaFactory.createForClass(TradeCancellation);
+
+TradeCancellationSchema.index({ accountId: 1, canceledAt: -1 });
+
+// 거래 게시글의 게시자-요청자 간 메모 대화. threadAccountId(요청자)별로 묶인다.
+@Schema({ collection: 'trade_messages' })
+export class TradeMessage extends Document {
+  @Prop({ type: Types.ObjectId, required: true, index: true })
+  listingId: Types.ObjectId;
+
+  // 대화방 식별자: 요청자 accountId (게시자와 요청자 1:1 스레드)
+  @Prop({ required: true })
+  threadAccountId: string;
+
+  @Prop({ required: true })
+  authorAccountId: string;
+
+  @Prop({ required: true })
+  authorNickname: string;
+
+  @Prop({ required: true })
+  content: string;
+
+  @Prop({ required: true })
+  createdAt: Date;
+}
+
+export const TradeMessageSchema = SchemaFactory.createForClass(TradeMessage);
+
+TradeMessageSchema.index({ listingId: 1, threadAccountId: 1, createdAt: 1 });

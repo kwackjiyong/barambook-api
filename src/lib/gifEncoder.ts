@@ -1,7 +1,7 @@
 // gif.service.ts
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import GIFEncoder = require('gif-encoder-2');
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+
 import { PNG } from 'pngjs';
 
 type MakeGifOptions = {

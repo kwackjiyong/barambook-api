@@ -18,7 +18,7 @@ function makeChunk(type: string, data: Buffer) {
   const len = Buffer.alloc(4);
   len.writeUInt32BE(data.length, 0);
   const t = Buffer.from(type, 'ascii');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+
   const crc = crc32(Buffer.concat([t, data]));
   return Buffer.concat([len, t, data, crc]);
 }

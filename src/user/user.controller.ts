@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  HttpStatus,
-  Post,
-  Res,
-} from '@nestjs/common';
+import { Controller, Get, HttpStatus, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 
 const SEARCH_DISABLED_MESSAGE = 'user search features are disabled';

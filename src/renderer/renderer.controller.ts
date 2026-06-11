@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { RendererService } from './renderer.service';
@@ -36,9 +35,9 @@ export class RendererController {
       // width: q.width ? Number(q.width) : undefined,
       // height: q.height ? Number(q.height) : undefined,
     };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const buf = await this.svc.render(params as any);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+
     res.send({ imageBuffer: buf.toString('base64') });
   }
   @Get('/array')
@@ -71,9 +70,9 @@ export class RendererController {
       // width: q.width ? Number(q.width) : undefined,
       // height: q.height ? Number(q.height) : undefined,
     };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const buffers = await this.svc.pngRender(params as any);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+
     res.send({ imageBuffers: buffers.map((b) => b.toString('base64')) });
   }
 }

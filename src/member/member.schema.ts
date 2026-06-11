@@ -40,6 +40,10 @@ export class Member extends Document {
   @Prop()
   maplestoryWorldVerifiedAt?: Date;
 
+  // 바람의나라 게임 캐릭터 닉네임. 거래소 게시글 등록/요청에 필요하다.
+  @Prop()
+  baramNickname?: string;
+
   // 서버 허용목록(OPERATOR_ACCOUNTS)으로만 부여되는 운영자 권한.
   @Prop({ default: false })
   isOperator: boolean;

@@ -2,8 +2,13 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ItemSchema } from '../guide/item/origin/item.schema';
 import { MemberModule } from '../member/member.module';
+import { NotificationModule } from '../notification/notification.module';
 import { TradeController } from './trade.controller';
-import { TradeListingSchema } from './trade.schema';
+import {
+  TradeCancellationSchema,
+  TradeListingSchema,
+  TradeMessageSchema,
+} from './trade.schema';
 import { TradeService } from './trade.service';
 
 @Module({
@@ -11,11 +16,14 @@ import { TradeService } from './trade.service';
     MongooseModule.forFeature(
       [
         { name: 'trade_listings', schema: TradeListingSchema },
+        { name: 'trade_cancellations', schema: TradeCancellationSchema },
+        { name: 'trade_messages', schema: TradeMessageSchema },
         { name: 'items', schema: ItemSchema },
       ],
       'barambook',
     ),
     MemberModule,
+    NotificationModule,
   ],
   controllers: [TradeController],
   providers: [TradeService],

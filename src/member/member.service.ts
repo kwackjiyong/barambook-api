@@ -34,9 +34,14 @@ export interface AuthenticatedSession {
 // 닉네임 변경 주기 제한: 마지막 변경으로부터 7일
 const NICKNAME_CHANGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// 거래 시 메월 닉네임 재검증 주기. 이 시간 안에 통과한 계정은 다시 조회하지 않는다.
+const MVERSE_RECHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class MemberService {
+  // 메월 닉네임 재검증 통과 시각 (accountId 기준 인메모리 캐시)
+  private readonly mverseRecheckPassedAt = new Map<string, number>();
+
   constructor(
     @InjectModel('sso_members', 'barambook')
     private readonly memberModel: Model<Member>,
@@ -119,6 +124,7 @@ export class MemberService {
         maplestoryWorldId: 1,
         maplestoryWorldProfileName: 1,
         maplestoryWorldVerifiedAt: 1,
+        baramNickname: 1,
         isOperator: 1,
         representativeCharacterName: 1,
         lastLoginAt: 1,
@@ -142,6 +148,7 @@ export class MemberService {
         nickname: 1,
         maplestoryWorldId: 1,
         maplestoryWorldProfileName: 1,
+        baramNickname: 1,
         createdAt: 1,
         lastActiveAt: 1,
       })
@@ -323,7 +330,90 @@ export class MemberService {
     member.maplestoryWorldId = next;
     member.maplestoryWorldProfileName = profile.profileName;
     member.maplestoryWorldVerifiedAt = verifiedAt;
+    this.mverseRecheckPassedAt.set(member.accountId, Date.now());
     return member;
+  }
+
+  async updateBaramNickname(
+    member: Member,
+    baramNickname: string,
+  ): Promise<Member> {
+    const next = baramNickname.trim();
+
+    if (!next) {
+      throw new BadRequestException('바람의나라 닉네임을 입력하세요.');
+    }
+
+    await this.memberModel
+      .updateOne(
+        { accountId: member.accountId },
+        { $set: { baramNickname: next } },
+      )
+      .exec();
+
+    member.baramNickname = next;
+    return member;
+  }
+
+  /**
+   * 거래소 이용 시 메월 인증 상태를 검사한다.
+   * 인증되지 않았으면 거부하고, 인증된 계정은 주기적으로 메월 프로필을
+   * 다시 조회해 닉네임이 바뀌었으면 인증을 해제하고 재인증을 요구한다.
+   */
+  async assertVerifiedMverseProfile(member: Member): Promise<void> {
+    if (
+      !member.maplestoryWorldId ||
+      !member.maplestoryWorldProfileName ||
+      !member.maplestoryWorldVerifiedAt
+    ) {
+      throw new BadRequestException(
+        '거래소 이용을 위해 내 정보에서 메이플스토리월드 프로필 인증을 먼저 완료하세요.',
+      );
+    }
+
+    const passedAt = this.mverseRecheckPassedAt.get(member.accountId);
+
+    if (
+      passedAt != null &&
+      Date.now() - passedAt < MVERSE_RECHECK_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    let profile: Awaited<ReturnType<typeof fetchMverseProfileByCode>>;
+
+    try {
+      profile = await fetchMverseProfileByCode(member.maplestoryWorldId);
+    } catch {
+      // 메월 API 장애가 거래를 막지 않도록 조회 실패는 통과시킨다.
+      return;
+    }
+
+    // 프로필 응답이 없는 경우도 일시 장애일 수 있어 통과시킨다.
+    if (!profile) {
+      return;
+    }
+
+    if (
+      !isSameMverseProfileName(
+        profile.profileName,
+        member.maplestoryWorldProfileName,
+      )
+    ) {
+      await this.memberModel
+        .updateOne(
+          { accountId: member.accountId },
+          { $unset: { maplestoryWorldVerifiedAt: 1 } },
+        )
+        .exec();
+      this.mverseRecheckPassedAt.delete(member.accountId);
+
+      throw new BadRequestException(
+        '메이플스토리월드 닉네임이 변경되어 재인증이 필요합니다. 내 정보에서 다시 인증하세요.',
+      );
+    }
+
+    this.mverseRecheckPassedAt.set(member.accountId, Date.now());
   }
 
   private hashSessionToken(sessionToken: string): string {

@@ -21,6 +21,10 @@ import { CreateTradeListingDto } from './dto/create-trade-listing.dto';
 import { QueryTradeListingsDto } from './dto/query-trade-listings.dto';
 import { QueryTradePriceSummaryDto } from './dto/query-trade-price-summary.dto';
 import { QueryTradeStatsDto } from './dto/query-trade-stats.dto';
+import {
+  CreateTradeMessageDto,
+  QueryTradeMessagesDto,
+} from './dto/trade-message.dto';
 import { UpdateTradeStatusDto } from './dto/update-trade-status.dto';
 import { TradeService } from './trade.service';
 
@@ -126,12 +130,21 @@ export class TradeController {
     return this.tradeService.requestTrade(id, req.member as Member);
   }
 
-  // 게시자의 요청 거절 또는 요청자의 요청 취소 (게시글은 open으로 복귀)
+  // 요청자의 요청 취소 또는 게시자의 특정 요청 거절(?requester=accountId).
+  // 남은 요청이 없으면 게시글은 open으로 복귀한다.
   @Delete(':id/request')
   @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
-  releaseRequest(@Param('id') id: string, @Req() req: TradeRequest) {
-    return this.tradeService.releaseRequest(id, req.member as Member);
+  releaseRequest(
+    @Param('id') id: string,
+    @Req() req: TradeRequest,
+    @Query('requester') requester?: string,
+  ) {
+    return this.tradeService.releaseRequest(
+      id,
+      req.member as Member,
+      requester?.trim() || undefined,
+    );
   }
 
   @Patch(':id/status')
@@ -153,6 +166,52 @@ export class TradeController {
       id,
       req.member as Member,
       dto.status,
+      dto.requesterAccountId,
+    );
+  }
+
+  // 게시자-요청자 메모 대화 조회 (게시자는 ?thread=요청자accountId 지정)
+  @Get(':id/messages')
+  @UseGuards(MemberSessionGuard)
+  findMessages(
+    @Param('id') id: string,
+    @Req() req: TradeRequest,
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryTradeMessagesDto,
+  ) {
+    return this.tradeService.findMessages(
+      id,
+      req.member as Member,
+      query.thread,
+    );
+  }
+
+  @Post(':id/messages')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(MemberSessionGuard)
+  createMessage(
+    @Param('id') id: string,
+    @Req() req: TradeRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: CreateTradeMessageDto,
+  ) {
+    return this.tradeService.createMessage(
+      id,
+      req.member as Member,
+      dto.content,
+      dto.thread,
     );
   }
 
