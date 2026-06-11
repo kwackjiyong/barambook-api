@@ -64,9 +64,33 @@ export interface TradeDyeOption {
   name: string;
 }
 
+// 염색/형상변환 없는 완료 거래를 표본으로 한 아이템 시세
+export interface TradeItemPriceStats {
+  itemId: number;
+  sampleCount: number;
+  averagePrice: number | null;
+}
+
+// 홈 화면 등에 노출할 아이템별 최근 시세 목록 항목
+export interface TradeItemPriceSummary {
+  itemId: number;
+  itemName: string;
+  itemType?: TradeItemType;
+  sampleCount: number;
+  averagePrice: number;
+  latestPrice: number;
+  lastTradedAt: string;
+}
+
 export interface TradeDyeOptions {
   weaponDyes: TradeDyeOption[];
   armorDyes: TradeDyeOption[];
+}
+
+// 내 거래 페이지: 내가 게시한 글과 내가 요청자로 참여한 글
+export interface MyTradesResult {
+  listings: SerializedTradeListing[];
+  requests: SerializedTradeListing[];
 }
 
 export interface TradeListingDetail {
@@ -87,6 +111,10 @@ interface CatalogItem {
 
 const DEFAULT_PAGE_SIZE = 20;
 const OWNER_LISTING_LIMIT = 10;
+const PRICE_STATS_SAMPLE_LIMIT = 20;
+const PRICE_SUMMARY_DEFAULT_LIMIT = 8;
+const PRICE_SUMMARY_SCAN_LIMIT = 400;
+const MY_TRADES_LIMIT = 50;
 const STATUS_SORT_ORDER: TradeStatus[] = [
   'requested',
   'open',
@@ -223,6 +251,127 @@ export class TradeService {
     };
   }
 
+  async getItemPriceStats(itemId: number): Promise<TradeItemPriceStats> {
+    // 옵션 차이로 가격이 달라지는 염색/형상변환 매물은 표본에서 제외한다.
+    const listings = await this.tradeListingModel
+      .find({
+        itemId,
+        status: 'completed',
+        dyeItemId: null,
+        transformItemId: null,
+      })
+      .sort({ closedAt: -1 })
+      .limit(PRICE_STATS_SAMPLE_LIMIT)
+      .select({ price: 1 })
+      .lean()
+      .exec();
+
+    // 가격은 자유 문자열이므로 숫자(콤마 허용)로 적힌 거래만 집계한다.
+    const numericPrices = listings
+      .map((listing) => listing.price.replace(/,/g, '').trim())
+      .filter((price) => /^\d+$/.test(price))
+      .map((price) => Number(price))
+      .filter((price) => price > 0);
+
+    if (numericPrices.length === 0) {
+      return { itemId, sampleCount: 0, averagePrice: null };
+    }
+
+    const total = numericPrices.reduce((sum, price) => sum + price, 0);
+
+    return {
+      itemId,
+      sampleCount: numericPrices.length,
+      averagePrice: Math.round(total / numericPrices.length),
+    };
+  }
+
+  async getItemPriceSummaries(
+    limit = PRICE_SUMMARY_DEFAULT_LIMIT,
+  ): Promise<TradeItemPriceSummary[]> {
+    // 가격이 자유 문자열이므로 최근 완료 거래를 가져와 숫자 가격만 앱에서 집계한다.
+    // 옵션 차이로 가격이 달라지는 염색/형상변환 매물은 표본에서 제외한다.
+    const listings = await this.tradeListingModel
+      .find({
+        status: 'completed',
+        dyeItemId: null,
+        transformItemId: null,
+      })
+      .sort({ closedAt: -1 })
+      .limit(PRICE_SUMMARY_SCAN_LIMIT)
+      .select({
+        itemId: 1,
+        itemName: 1,
+        itemType: 1,
+        price: 1,
+        closedAt: 1,
+        createdAt: 1,
+      })
+      .lean()
+      .exec();
+
+    const groups = new Map<
+      number,
+      {
+        itemId: number;
+        itemName: string;
+        itemType?: TradeItemType;
+        prices: number[];
+        latestPrice: number;
+        lastTradedAt: Date;
+      }
+    >();
+
+    for (const listing of listings) {
+      const numeric = listing.price.replace(/,/g, '').trim();
+
+      if (!/^\d+$/.test(numeric)) {
+        continue;
+      }
+
+      const price = Number(numeric);
+
+      if (price <= 0) {
+        continue;
+      }
+
+      const group = groups.get(listing.itemId);
+
+      if (!group) {
+        // closedAt 내림차순 조회라 아이템별 첫 표본이 가장 최근 거래다.
+        groups.set(listing.itemId, {
+          itemId: listing.itemId,
+          itemName: listing.itemName,
+          itemType: listing.itemType,
+          prices: [price],
+          latestPrice: price,
+          lastTradedAt: listing.closedAt ?? listing.createdAt,
+        });
+        continue;
+      }
+
+      if (group.prices.length < PRICE_STATS_SAMPLE_LIMIT) {
+        group.prices.push(price);
+      }
+    }
+
+    return Array.from(groups.values())
+      .sort((a, b) => b.lastTradedAt.getTime() - a.lastTradedAt.getTime())
+      .slice(0, limit)
+      .map((group) => ({
+        itemId: group.itemId,
+        itemName: group.itemName,
+        itemType: group.itemType,
+        sampleCount: group.prices.length,
+        averagePrice: Math.round(
+          group.prices.reduce((sum, price) => sum + price, 0) /
+            group.prices.length,
+        ),
+        latestPrice: group.latestPrice,
+        lastTradedAt: group.lastTradedAt.toISOString(),
+      }));
+  }
+
   async createListing(
     member: Member,
     dto: CreateTradeListingDto,
@@ -334,18 +483,20 @@ export class TradeService {
     status: TradeResolveStatusDto,
   ): Promise<SerializedTradeListing> {
     const listing = await this.findListingById(id);
-    const isOwner = listing.ownerAccountId === member.accountId;
-    const isRequester = listing.requesterAccountId === member.accountId;
+
+    // 거래 완료/게시 취소 판정은 게시자만 할 수 있다.
+    // (요청자는 releaseRequest로 자신의 요청만 취소할 수 있다)
+    if (listing.ownerAccountId !== member.accountId) {
+      throw new ForbiddenException('게시자만 거래 상태를 변경할 수 있습니다.');
+    }
 
     if (listing.status === 'open') {
-      if (status !== TradeResolveStatusDto.Canceled || !isOwner) {
-        throw new ForbiddenException('이 거래를 변경할 수 없습니다.');
+      if (status !== TradeResolveStatusDto.Canceled) {
+        throw new BadRequestException(
+          '거래 요청이 없는 게시글은 완료 처리할 수 없습니다.',
+        );
       }
-    } else if (listing.status === 'requested') {
-      if (!isOwner && !isRequester) {
-        throw new ForbiddenException('이 거래를 변경할 수 없습니다.');
-      }
-    } else {
+    } else if (listing.status !== 'requested') {
       throw new BadRequestException('이미 종료된 거래입니다.');
     }
 
@@ -355,6 +506,72 @@ export class TradeService {
     await listing.save();
 
     return this.serializeListing(listing, member);
+  }
+
+  // 게시자의 요청 거절 또는 요청자의 요청 취소.
+  // 게시글을 닫지 않고 다시 거래 가능(open) 상태로 되돌린다.
+  async releaseRequest(
+    id: string,
+    member: Member,
+  ): Promise<SerializedTradeListing> {
+    const listing = await this.findListingById(id);
+
+    if (listing.status !== 'requested') {
+      throw new BadRequestException('진행 중인 거래 요청이 없습니다.');
+    }
+
+    const isOwner = listing.ownerAccountId === member.accountId;
+    const isRequester = listing.requesterAccountId === member.accountId;
+
+    if (!isOwner && !isRequester) {
+      throw new ForbiddenException('이 거래 요청을 변경할 수 없습니다.');
+    }
+
+    listing.status = 'open';
+    listing.requesterAccountId = undefined;
+    listing.requesterNickname = undefined;
+    listing.requesterDiscordId = undefined;
+    listing.requestedAt = undefined;
+
+    await listing.save();
+
+    return this.serializeListing(listing, member);
+  }
+
+  async findMyTrades(member: Member): Promise<MyTradesResult> {
+    const sortStages = [
+      {
+        $addFields: {
+          statusOrder: { $indexOfArray: [STATUS_SORT_ORDER, '$status'] },
+        },
+      },
+      { $sort: { statusOrder: 1 as const, createdAt: -1 as const } },
+      { $limit: MY_TRADES_LIMIT },
+    ];
+
+    const [listings, requests] = await Promise.all([
+      this.tradeListingModel
+        .aggregate<TradeListing>([
+          { $match: { ownerAccountId: member.accountId } },
+          ...sortStages,
+        ])
+        .exec(),
+      this.tradeListingModel
+        .aggregate<TradeListing>([
+          { $match: { requesterAccountId: member.accountId } },
+          ...sortStages,
+        ])
+        .exec(),
+    ]);
+
+    return {
+      listings: listings.map((listing) =>
+        this.serializeListing(listing, member),
+      ),
+      requests: requests.map((listing) =>
+        this.serializeListing(listing, member),
+      ),
+    };
   }
 
   private buildListingFilter(
@@ -453,7 +670,7 @@ export class TradeService {
 
     if (active) {
       throw new BadRequestException(
-        '진행 중인 거래를 먼저 완료하거나 취소하세요.',
+        '진행 중인 거래를 먼저 완료하거나 거절·취소하세요.',
       );
     }
   }
