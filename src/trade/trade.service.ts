@@ -20,6 +20,10 @@ import {
   TradeStatus,
 } from './trade.schema';
 
+// 게시자의 바람비전 활동 상태. 마지막 사이트 활동(하트비트)이
+// OWNER_ACTIVE_WINDOW_MS 이내면 'active'(활동중), 아니면 'away'(부재중).
+export type TradeOwnerPresence = 'active' | 'away';
+
 export interface SerializedTradeListing {
   id: string;
   type: TradeListing['type'];
@@ -37,6 +41,7 @@ export interface SerializedTradeListing {
   memo?: string;
   ownerNickname: string;
   ownerMaplestoryWorldId?: string;
+  ownerPresence?: TradeOwnerPresence;
   requesterNickname?: string;
   ownerDiscordId?: string;
   requesterDiscordId?: string;
@@ -115,6 +120,8 @@ const PRICE_STATS_SAMPLE_LIMIT = 20;
 const PRICE_SUMMARY_DEFAULT_LIMIT = 8;
 const PRICE_SUMMARY_SCAN_LIMIT = 400;
 const MY_TRADES_LIMIT = 50;
+// 마지막 사이트 활동이 이 시간 이내면 게시자를 '활동중'으로 본다
+const OWNER_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const STATUS_SORT_ORDER: TradeStatus[] = [
   'requested',
   'open',
@@ -165,14 +172,9 @@ export class TradeService {
         { $sort: { statusOrder: 1, createdAt: -1 } },
         {
           $facet: {
-            items: [
-              { $skip: (page - 1) * pageSize },
-              { $limit: pageSize },
-            ],
+            items: [{ $skip: (page - 1) * pageSize }, { $limit: pageSize }],
             total: [{ $count: 'count' }],
-            statusCounts: [
-              { $group: { _id: '$status', count: { $sum: 1 } } },
-            ],
+            statusCounts: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
           },
         },
       ])
@@ -195,9 +197,20 @@ export class TradeService {
           .exec()
       : null;
 
+    const ownerAccountIds = new Set(
+      result.items.map((listing) => listing.ownerAccountId),
+    );
+
+    if (activeTrade) {
+      ownerAccountIds.add(activeTrade.ownerAccountId);
+    }
+
+    const lastActiveByAccountId =
+      await this.memberService.findLastActiveByAccountIds([...ownerAccountIds]);
+
     return {
       items: result.items.map((listing) =>
-        this.serializeListing(listing, member),
+        this.serializeListing(listing, member, lastActiveByAccountId),
       ),
       page,
       pageSize,
@@ -206,7 +219,7 @@ export class TradeService {
       openCount: countByStatus.get('open') ?? 0,
       requestedCount: countByStatus.get('requested') ?? 0,
       activeTrade: activeTrade
-        ? this.serializeListing(activeTrade, member)
+        ? this.serializeListing(activeTrade, member, lastActiveByAccountId)
         : null,
     };
   }
@@ -220,20 +233,29 @@ export class TradeService {
       listing.ownerAccountId,
     );
     const ownerListings = await this.tradeListingModel
-      .find({ ownerAccountId: listing.ownerAccountId, _id: { $ne: listing._id } })
+      .find({
+        ownerAccountId: listing.ownerAccountId,
+        _id: { $ne: listing._id },
+      })
       .sort({ createdAt: -1 })
       .limit(OWNER_LISTING_LIMIT)
       .exec();
 
+    const lastActiveByAccountId = new Map<string, Date>();
+
+    if (owner?.lastActiveAt != null) {
+      lastActiveByAccountId.set(listing.ownerAccountId, owner.lastActiveAt);
+    }
+
     return {
-      listing: this.serializeListing(listing, member),
+      listing: this.serializeListing(listing, member, lastActiveByAccountId),
       owner: {
         nickname: listing.ownerNickname,
         joinedAt: owner?.createdAt?.toISOString(),
         maplestoryWorldId: listing.ownerMaplestoryWorldId,
       },
       ownerListings: ownerListings.map((entry) =>
-        this.serializeListing(entry, member),
+        this.serializeListing(entry, member, lastActiveByAccountId),
       ),
     };
   }
@@ -689,9 +711,27 @@ export class TradeService {
     return listing;
   }
 
+  // 게시자 활동 상태. 일괄 조회한 lastActiveAt 맵이 있을 때만 판정한다.
+  private resolveOwnerPresence(
+    listing: TradeListing,
+    lastActiveByAccountId?: Map<string, Date>,
+  ): TradeOwnerPresence | undefined {
+    if (!lastActiveByAccountId) {
+      return undefined;
+    }
+
+    const lastActiveAt = lastActiveByAccountId.get(listing.ownerAccountId);
+
+    return lastActiveAt != null &&
+      Date.now() - lastActiveAt.getTime() <= OWNER_ACTIVE_WINDOW_MS
+      ? 'active'
+      : 'away';
+  }
+
   private serializeListing(
     listing: TradeListing,
     member?: Member | null,
+    lastActiveByAccountId?: Map<string, Date>,
   ): SerializedTradeListing {
     const accountId = member?.accountId;
     const isMine = accountId != null && listing.ownerAccountId === accountId;
@@ -719,10 +759,9 @@ export class TradeService {
       memo: listing.memo,
       ownerNickname: listing.ownerNickname,
       ownerMaplestoryWorldId: listing.ownerMaplestoryWorldId,
+      ownerPresence: this.resolveOwnerPresence(listing, lastActiveByAccountId),
       requesterNickname: listing.requesterNickname,
-      ownerDiscordId: canSeeOwnerDiscordId
-        ? listing.ownerDiscordId
-        : undefined,
+      ownerDiscordId: canSeeOwnerDiscordId ? listing.ownerDiscordId : undefined,
       requesterDiscordId: canSeeRequesterDiscordId
         ? listing.requesterDiscordId
         : undefined,

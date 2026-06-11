@@ -72,6 +72,17 @@ export class AuthController {
     return this.serializeMember(member);
   }
 
+  // 사이트 활동 하트비트. 탭이 열려 있는 동안 주기적으로 호출되어
+  // 거래소 게시자 활동중/부재중 배지 기준(lastActiveAt)을 갱신한다.
+  @Post('/heartbeat')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  async heartbeat(@Req() req: AuthenticatedRequest) {
+    const member = req.member as Member;
+    await this.memberService.touchLastActive(member.accountId);
+    return { ok: true };
+  }
+
   @Post('/logout')
   @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
@@ -135,6 +146,10 @@ export class AuthController {
     const member = await this.memberService.updateMaplestoryWorldId(
       req.member as Member,
       dto.maplestoryWorldId,
+      {
+        profileName: dto.profileName,
+        backgroundId: dto.backgroundId,
+      },
     );
 
     return this.serializeMember(member);
@@ -172,6 +187,9 @@ export class AuthController {
       email: member.email,
       discordId: member.discordId,
       maplestoryWorldId: member.maplestoryWorldId,
+      maplestoryWorldProfileName: member.maplestoryWorldProfileName,
+      maplestoryWorldVerifiedAt:
+        member.maplestoryWorldVerifiedAt?.toISOString(),
       isOperator: member.isOperator === true,
       authenticated: true,
     };

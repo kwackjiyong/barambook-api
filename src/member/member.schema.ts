@@ -34,6 +34,12 @@ export class Member extends Document {
   @Prop()
   maplestoryWorldId?: string;
 
+  @Prop()
+  maplestoryWorldProfileName?: string;
+
+  @Prop()
+  maplestoryWorldVerifiedAt?: Date;
+
   // 서버 허용목록(OPERATOR_ACCOUNTS)으로만 부여되는 운영자 권한.
   @Prop({ default: false })
   isOperator: boolean;
@@ -56,6 +62,11 @@ export class Member extends Document {
 
   @Prop()
   lastLoginAt?: Date;
+
+  // 사이트(바람비전) 마지막 활동 시각. 프론트 하트비트로 갱신되며
+  // 거래소 게시자 활동중/부재중 배지의 기준이 된다.
+  @Prop()
+  lastActiveAt?: Date;
 
   @Prop()
   createdAt: Date;

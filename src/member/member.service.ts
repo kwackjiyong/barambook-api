@@ -7,6 +7,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { createHash, randomBytes } from 'crypto';
 import { Model } from 'mongoose';
 import { AuthProvider, Member } from './member.schema';
+import {
+  fetchMverseProfileByCode,
+  isSameMverseProfileName,
+  sanitizeMverseProfileCode,
+} from './mverse-profile';
 
 export interface SsoProfile {
   provider: AuthProvider;
@@ -14,6 +19,11 @@ export interface SsoProfile {
   nickname: string;
   email?: string;
   discordId?: string;
+}
+
+export interface MaplestoryWorldVerificationInput {
+  profileName: string;
+  backgroundId?: number;
 }
 
 export interface AuthenticatedSession {
@@ -48,12 +58,11 @@ export class MemberService {
 
   private resolveIsOperator(profile: SsoProfile): boolean {
     const operators = this.getOperatorAccounts();
-    const accountKey = `${profile.provider}:${profile.providerId}`.toLowerCase();
+    const accountKey =
+      `${profile.provider}:${profile.providerId}`.toLowerCase();
     const email = profile.email?.toLowerCase();
 
-    return (
-      operators.has(accountKey) || (email != null && operators.has(email))
-    );
+    return operators.has(accountKey) || (email != null && operators.has(email));
   }
 
   /**
@@ -108,6 +117,8 @@ export class MemberService {
         email: 1,
         discordId: 1,
         maplestoryWorldId: 1,
+        maplestoryWorldProfileName: 1,
+        maplestoryWorldVerifiedAt: 1,
         isOperator: 1,
         representativeCharacterName: 1,
         lastLoginAt: 1,
@@ -130,9 +141,42 @@ export class MemberService {
         accountId: 1,
         nickname: 1,
         maplestoryWorldId: 1,
+        maplestoryWorldProfileName: 1,
         createdAt: 1,
+        lastActiveAt: 1,
       })
       .exec();
+  }
+
+  // 하트비트: 사이트 마지막 활동 시각 갱신
+  async touchLastActive(accountId: string): Promise<void> {
+    await this.memberModel
+      .updateOne({ accountId }, { $set: { lastActiveAt: new Date() } })
+      .exec();
+  }
+
+  // 거래소 활동 배지용: 게시자 accountId 목록의 lastActiveAt 일괄 조회
+  async findLastActiveByAccountIds(
+    accountIds: string[],
+  ): Promise<Map<string, Date>> {
+    if (accountIds.length === 0) {
+      return new Map();
+    }
+
+    const members = await this.memberModel
+      .find({ accountId: { $in: accountIds } })
+      .select({ accountId: 1, lastActiveAt: 1 })
+      .exec();
+
+    const lastActiveByAccountId = new Map<string, Date>();
+
+    for (const member of members) {
+      if (member.lastActiveAt != null) {
+        lastActiveByAccountId.set(member.accountId, member.lastActiveAt);
+      }
+    }
+
+    return lastActiveByAccountId;
   }
 
   async logout(sessionToken: string): Promise<void> {
@@ -204,17 +248,81 @@ export class MemberService {
   async updateMaplestoryWorldId(
     member: Member,
     maplestoryWorldId: string,
+    verification: MaplestoryWorldVerificationInput,
   ): Promise<Member> {
-    const next = maplestoryWorldId.trim();
+    const next = sanitizeMverseProfileCode(maplestoryWorldId);
+    const profileName = verification.profileName.trim();
+
+    if (!profileName) {
+      throw new BadRequestException('메이플스토리월드 닉네임을 입력하세요.');
+    }
+
+    const profile = await fetchMverseProfileByCode(next);
+
+    if (!profile) {
+      throw new BadRequestException(
+        '메이플스토리월드 프로필을 찾지 못했습니다.',
+      );
+    }
+
+    if (sanitizeMverseProfileCode(profile.profileCode) !== next) {
+      throw new BadRequestException(
+        '메이플스토리월드 프로필 태그가 일치하지 않습니다.',
+      );
+    }
+
+    if (!isSameMverseProfileName(profileName, profile.profileName)) {
+      throw new BadRequestException(
+        '메이플스토리월드 닉네임이 일치하지 않습니다.',
+      );
+    }
+
+    if (verification.backgroundId != null) {
+      if (profile.backgroundId == null) {
+        throw new BadRequestException(
+          '메이플스토리월드 프로필 배경 정보를 확인할 수 없습니다.',
+        );
+      }
+
+      if (profile.backgroundId !== verification.backgroundId) {
+        throw new BadRequestException(
+          '메이플스토리월드 프로필 배경 변경이 확인되지 않았습니다.',
+        );
+      }
+    }
+
+    const duplicate = await this.memberModel
+      .findOne({
+        maplestoryWorldId: next,
+        accountId: { $ne: member.accountId },
+      })
+      .select({ _id: 1 })
+      .exec();
+
+    if (duplicate) {
+      throw new BadRequestException(
+        '이미 다른 계정에 인증된 메이플스토리월드 프로필입니다.',
+      );
+    }
+
+    const verifiedAt = new Date();
 
     await this.memberModel
       .updateOne(
         { accountId: member.accountId },
-        { $set: { maplestoryWorldId: next } },
+        {
+          $set: {
+            maplestoryWorldId: next,
+            maplestoryWorldProfileName: profile.profileName,
+            maplestoryWorldVerifiedAt: verifiedAt,
+          },
+        },
       )
       .exec();
 
     member.maplestoryWorldId = next;
+    member.maplestoryWorldProfileName = profile.profileName;
+    member.maplestoryWorldVerifiedAt = verifiedAt;
     return member;
   }
 
