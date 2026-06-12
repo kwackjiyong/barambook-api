@@ -207,3 +207,52 @@ export class TradeMessage extends Document {
 export const TradeMessageSchema = SchemaFactory.createForClass(TradeMessage);
 
 TradeMessageSchema.index({ listingId: 1, threadAccountId: 1, createdAt: 1 });
+
+// 거래 게시글의 게시자-요청자 1:1 대화방 요약. 메모 작성 시 upsert한다.
+// 안읽음 배지/딥링크에 쓰며, 메시지 본문은 trade_messages에 그대로 둔다.
+@Schema({ collection: 'trade_threads' })
+export class TradeThread extends Document {
+  @Prop({ type: Types.ObjectId, required: true, index: true })
+  listingId: Types.ObjectId;
+
+  @Prop({ required: true, index: true })
+  ownerAccountId: string;
+
+  // 대화방 식별자: 요청자 accountId
+  @Prop({ required: true, index: true })
+  threadAccountId: string;
+
+  @Prop()
+  lastMessageAt?: Date;
+
+  @Prop()
+  lastMessagePreview?: string;
+
+  @Prop()
+  lastAuthorAccountId?: string;
+
+  // 읽음 기준점 (대화방을 조회한 시각)
+  @Prop()
+  ownerLastReadAt?: Date;
+
+  @Prop()
+  requesterLastReadAt?: Date;
+
+  // 안읽음 수. 메시지 수신 시 증가, 조회(읽음) 시 0으로 초기화한다.
+  @Prop({ default: 0 })
+  ownerUnread: number;
+
+  @Prop({ default: 0 })
+  requesterUnread: number;
+
+  // 웹푸시 5분 스로틀 기준점 (수신자별 마지막 푸시 발송 시각)
+  @Prop()
+  ownerLastPushedAt?: Date;
+
+  @Prop()
+  requesterLastPushedAt?: Date;
+}
+
+export const TradeThreadSchema = SchemaFactory.createForClass(TradeThread);
+
+TradeThreadSchema.index({ listingId: 1, threadAccountId: 1 }, { unique: true });

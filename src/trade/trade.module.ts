@@ -8,6 +8,7 @@ import {
   TradeCancellationSchema,
   TradeListingSchema,
   TradeMessageSchema,
+  TradeThreadSchema,
 } from './trade.schema';
 import { TradeService } from './trade.service';
 
@@ -18,6 +19,7 @@ import { TradeService } from './trade.service';
         { name: 'trade_listings', schema: TradeListingSchema },
         { name: 'trade_cancellations', schema: TradeCancellationSchema },
         { name: 'trade_messages', schema: TradeMessageSchema },
+        { name: 'trade_threads', schema: TradeThreadSchema },
         { name: 'items', schema: ItemSchema },
       ],
       'barambook',

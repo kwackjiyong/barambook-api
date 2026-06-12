@@ -23,6 +23,7 @@ import {
   TradeMessage,
   TradeRequestEntry,
   TradeStatus,
+  TradeThread,
 } from './trade.schema';
 
 // 게시자의 바람비전 활동 상태. 마지막 사이트 활동(하트비트)이
@@ -38,6 +39,17 @@ export interface SerializedTradeRequest {
   maplestoryWorldId?: string;
   baramNickname?: string;
   requestedAt: string;
+}
+
+// 메모 대화방 요약. 참여자(게시자/요청자)에게만 내려간다.
+export interface SerializedTradeThread {
+  // 대화방 식별자(요청자 accountId). 게시자가 스레드를 선택할 때 쓴다.
+  threadAccountId: string;
+  // 상대 닉네임 (게시자가 보면 요청자, 요청자가 보면 게시자)
+  nickname: string;
+  unreadCount: number;
+  lastMessageAt?: string;
+  lastMessagePreview?: string;
 }
 
 export interface SerializedTradeListing {
@@ -63,6 +75,8 @@ export interface SerializedTradeListing {
   requestCount: number;
   // 게시자에게만 내려가는 요청자 목록 (연락처 포함)
   requests?: SerializedTradeRequest[];
+  // 참여자에게만 내려가는 메모 대화방 요약 (안읽음 배지/딥링크용)
+  threads?: SerializedTradeThread[];
   requesterNickname?: string;
   ownerDiscordId?: string;
   ownerEmail?: string;
@@ -161,6 +175,14 @@ interface SerializeContext {
   lastActiveByAccountId?: Map<string, Date>;
   mverseOnlineByTag?: Map<string, boolean | null>;
   marketStatsByKey?: Map<string, MarketStats>;
+  // listingId(string) → 호출자가 볼 수 있는 메모 대화방 요약
+  threadsByListingId?: Map<string, SerializedTradeThread[]>;
+}
+
+// 전역 안읽음 메모 합계 (헤더 배지용)
+export interface TradeUnreadSummary {
+  total: number;
+  threadCount: number;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -181,6 +203,12 @@ const LISTING_REQUEST_LIMIT = 20;
 const CANCEL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const CANCEL_LIMIT_PER_WINDOW = 3;
 const TRADE_MESSAGE_LIMIT = 100;
+// 요청 첫 메모 최대 길이 (DTO와 동일)
+const REQUEST_MESSAGE_MAX_LENGTH = 200;
+// 같은 대화방 같은 수신자에게 웹푸시를 다시 보내기까지의 최소 간격 (5분)
+const MESSAGE_PUSH_THROTTLE_MS = 5 * 60 * 1000;
+// 대화방 요약/푸시 본문에 노출할 메시지 미리보기 길이
+const MESSAGE_PREVIEW_LENGTH = 60;
 // 마지막 사이트 활동이 이 시간 이내면 게시자를 '활동중'으로 본다
 const OWNER_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const STATUS_SORT_ORDER: TradeStatus[] = [
@@ -229,6 +257,8 @@ export class TradeService {
     private readonly tradeCancellationModel: Model<TradeCancellation>,
     @InjectModel('trade_messages', 'barambook')
     private readonly tradeMessageModel: Model<TradeMessage>,
+    @InjectModel('trade_threads', 'barambook')
+    private readonly tradeThreadModel: Model<TradeThread>,
     @InjectModel('items', 'barambook')
     private readonly itemModel: Model<Item>,
     private readonly memberService: MemberService,
@@ -408,10 +438,14 @@ export class TradeService {
     }
 
     const marketStatsByKey = await this.loadMarketStats([listing]);
+    const threadsByListingId = member
+      ? await this.buildThreadSummaries([listing], member)
+      : undefined;
     const context: SerializeContext = {
       member,
       lastActiveByAccountId,
       marketStatsByKey,
+      threadsByListingId,
     };
 
     return {
@@ -647,6 +681,7 @@ export class TradeService {
   async requestTrade(
     id: string,
     member: Member,
+    message?: string,
   ): Promise<SerializedTradeListing> {
     await this.memberService.assertVerifiedMverseProfile(member);
     this.assertHasBaramNickname(member);
@@ -706,6 +741,18 @@ export class TradeService {
 
     await listing.save();
 
+    // 요청과 함께 첫 메모를 보냈다면 해당 스레드의 첫 메시지로 저장한다.
+    const firstMessage = message?.trim().slice(0, REQUEST_MESSAGE_MAX_LENGTH);
+
+    if (firstMessage) {
+      // 요청 알림이 곧 발송되므로 메모 알림은 보내지 않고(suppressNotify)
+      // 게시자 푸시 스로틀 기준점만 갱신해 둔다(중복 푸시 방지).
+      await this.appendThreadMessage(listing, member, firstMessage, {
+        suppressNotify: true,
+        markRecipientPushed: true,
+      }).catch(() => undefined);
+    }
+
     // 게시자에게 SSE/웹푸시 알림 (실패해도 거래 흐름을 막지 않는다)
     void this.notificationService
       .notifyTradeRequest(listing.ownerAccountId, {
@@ -713,7 +760,11 @@ export class TradeService {
         itemName: listing.itemName,
         price: listing.price,
         requesterNickname: entry.requesterNickname,
-        url: `/trade/${String(listing._id)}`,
+        messagePreview: firstMessage
+          ? this.buildPreview(firstMessage)
+          : undefined,
+        // 게시자는 요청자의 스레드를 바로 여는 딥링크로 이동한다.
+        url: this.buildThreadUrl(listing, true, member.accountId),
       })
       .catch(() => undefined);
 
@@ -888,7 +939,11 @@ export class TradeService {
         .exec(),
     ]);
 
-    const context: SerializeContext = { member };
+    const threadsByListingId = await this.buildThreadSummaries(
+      [...listings, ...requests],
+      member,
+    );
+    const context: SerializeContext = { member, threadsByListingId };
 
     return {
       listings: listings.map((listing) =>
@@ -901,6 +956,7 @@ export class TradeService {
   }
 
   // 게시자-요청자 메모 대화 조회. 게시자는 모든 스레드, 요청자는 자기 스레드만.
+  // 조회한 호출자의 읽음 기준점을 갱신하고 안읽음 수를 0으로 만든다.
   async findMessages(
     id: string,
     member: Member,
@@ -914,6 +970,8 @@ export class TradeService {
       .sort({ createdAt: 1 })
       .limit(TRADE_MESSAGE_LIMIT)
       .exec();
+
+    await this.markThreadRead(listing, threadAccountId, member.accountId);
 
     return {
       thread: threadAccountId,
@@ -936,23 +994,186 @@ export class TradeService {
     thread?: string,
   ): Promise<{ thread: string; message: SerializedTradeMessage }> {
     const listing = await this.findListingById(id);
-    const threadAccountId = this.resolveMessageThread(listing, member, thread);
     const trimmed = content.trim();
 
     if (!trimmed) {
       throw new BadRequestException('메모 내용을 입력하세요.');
     }
 
+    return this.appendThreadMessage(listing, member, trimmed, { thread });
+  }
+
+  // 전역 안읽음 메모 합계 (헤더 배지용). 게시자/요청자 양쪽을 더한다.
+  async getUnreadSummary(member: Member): Promise<TradeUnreadSummary> {
+    const threads = await this.tradeThreadModel
+      .find({
+        $or: [
+          { ownerAccountId: member.accountId, ownerUnread: { $gt: 0 } },
+          { threadAccountId: member.accountId, requesterUnread: { $gt: 0 } },
+        ],
+      })
+      .select({ ownerAccountId: 1, ownerUnread: 1, requesterUnread: 1 })
+      .lean()
+      .exec();
+
+    let total = 0;
+
+    for (const thread of threads) {
+      total +=
+        thread.ownerAccountId === member.accountId
+          ? (thread.ownerUnread ?? 0)
+          : (thread.requesterUnread ?? 0);
+    }
+
+    return { total, threadCount: threads.length };
+  }
+
+  // 메모 본문 미리보기. 줄바꿈은 공백으로 펴고 길이를 제한한다.
+  private buildPreview(content: string): string {
+    const normalized = content.replace(/\s+/g, ' ').trim();
+
+    return normalized.length > MESSAGE_PREVIEW_LENGTH
+      ? `${normalized.slice(0, MESSAGE_PREVIEW_LENGTH)}…`
+      : normalized;
+  }
+
+  // 알림 클릭 딥링크. 게시자는 요청자 스레드를 바로 여는 ?thread= 링크로,
+  // 요청자는 자기 스레드가 자동으로 열리는 상세 페이지로 보낸다.
+  private buildThreadUrl(
+    listing: TradeListing,
+    isOwnerView: boolean,
+    threadAccountId: string,
+  ): string {
+    const base = `/trade/${String(listing._id)}`;
+
+    return isOwnerView
+      ? `${base}?thread=${encodeURIComponent(threadAccountId)}`
+      : base;
+  }
+
+  // 대화방을 조회한 호출자의 읽음 처리. 스레드 문서가 있을 때만 갱신한다.
+  private async markThreadRead(
+    listing: TradeListing,
+    threadAccountId: string,
+    readerAccountId: string,
+  ): Promise<void> {
+    const isOwner = listing.ownerAccountId === readerAccountId;
+    const update = isOwner
+      ? { ownerUnread: 0, ownerLastReadAt: new Date() }
+      : { requesterUnread: 0, requesterLastReadAt: new Date() };
+
+    await this.tradeThreadModel
+      .updateOne({ listingId: listing._id, threadAccountId }, { $set: update })
+      .exec()
+      .catch(() => undefined);
+  }
+
+  /**
+   * 메모 한 건을 저장하고 대화방 요약(trade_threads)을 upsert한다.
+   * 수신자의 안읽음 수를 올리고, 5분 스로틀에 맞춰 SSE/웹푸시를 보낸다.
+   * (요청 첫 메모는 요청 알림과 중복되므로 suppressNotify로 알림을 건너뛴다)
+   */
+  private async appendThreadMessage(
+    listing: TradeListing,
+    author: Member,
+    content: string,
+    options?: {
+      thread?: string;
+      suppressNotify?: boolean;
+      markRecipientPushed?: boolean;
+    },
+  ): Promise<{ thread: string; message: SerializedTradeMessage }> {
+    const threadAccountId = this.resolveMessageThread(
+      listing,
+      author,
+      options?.thread,
+    );
+    const now = new Date();
+    const authorNickname = this.resolveDisplayNickname(author);
+
     const message = new this.tradeMessageModel({
       listingId: listing._id,
       threadAccountId,
-      authorAccountId: member.accountId,
-      authorNickname: this.resolveDisplayNickname(member),
-      content: trimmed,
-      createdAt: new Date(),
+      authorAccountId: author.accountId,
+      authorNickname,
+      content,
+      createdAt: now,
     });
 
     await message.save();
+
+    const isAuthorOwner = listing.ownerAccountId === author.accountId;
+    const recipientAccountId = isAuthorOwner
+      ? threadAccountId
+      : listing.ownerAccountId;
+
+    // 작성자 기준 상대(수신자)의 안읽음 필드 / 푸시 기준점 필드
+    const recipientUnreadField = isAuthorOwner
+      ? 'requesterUnread'
+      : 'ownerUnread';
+    const recipientPushedField = isAuthorOwner
+      ? 'requesterLastPushedAt'
+      : 'ownerLastPushedAt';
+    const authorUnreadField = isAuthorOwner ? 'ownerUnread' : 'requesterUnread';
+    const authorReadField = isAuthorOwner
+      ? 'ownerLastReadAt'
+      : 'requesterLastReadAt';
+
+    const existing = await this.tradeThreadModel
+      .findOne({ listingId: listing._id, threadAccountId })
+      .select({ ownerLastPushedAt: 1, requesterLastPushedAt: 1 })
+      .lean()
+      .exec();
+
+    const recipientLastPushedAt = isAuthorOwner
+      ? existing?.requesterLastPushedAt
+      : existing?.ownerLastPushedAt;
+
+    const shouldPush =
+      !options?.suppressNotify &&
+      (recipientLastPushedAt == null ||
+        now.getTime() - new Date(recipientLastPushedAt).getTime() >=
+          MESSAGE_PUSH_THROTTLE_MS);
+
+    const set: Record<string, unknown> = {
+      ownerAccountId: listing.ownerAccountId,
+      lastMessageAt: now,
+      lastMessagePreview: this.buildPreview(content),
+      lastAuthorAccountId: author.accountId,
+      // 작성자는 자기 메시지를 보냈으므로 자기 스레드를 읽은 것으로 본다.
+      [authorUnreadField]: 0,
+      [authorReadField]: now,
+    };
+
+    if (shouldPush || options?.markRecipientPushed) {
+      set[recipientPushedField] = now;
+    }
+
+    await this.tradeThreadModel
+      .updateOne(
+        { listingId: listing._id, threadAccountId },
+        { $set: set, $inc: { [recipientUnreadField]: 1 } },
+        { upsert: true },
+      )
+      .exec();
+
+    if (!options?.suppressNotify) {
+      void this.notificationService
+        .notifyTradeMessage(
+          recipientAccountId,
+          {
+            listingId: String(listing._id),
+            thread: threadAccountId,
+            itemName: listing.itemName,
+            authorNickname,
+            preview: this.buildPreview(content),
+            // 수신자가 게시자면 요청자 스레드 딥링크, 요청자면 상세로 보낸다.
+            url: this.buildThreadUrl(listing, !isAuthorOwner, threadAccountId),
+          },
+          { sendPush: shouldPush },
+        )
+        .catch(() => undefined);
+    }
 
     return {
       thread: threadAccountId,
@@ -965,6 +1186,117 @@ export class TradeService {
         createdAt: message.createdAt.toISOString(),
         isMine: true,
       },
+    };
+  }
+
+  // 게시글들에 대해 호출자가 볼 수 있는 메모 대화방 요약을 일괄 구성한다.
+  private async buildThreadSummaries(
+    listings: TradeListing[],
+    member: Member,
+  ): Promise<Map<string, SerializedTradeThread[]>> {
+    const result = new Map<string, SerializedTradeThread[]>();
+
+    if (listings.length === 0) {
+      return result;
+    }
+
+    const listingIds = listings.map((listing) => listing._id);
+    const threads = await this.tradeThreadModel
+      .find({ listingId: { $in: listingIds } })
+      .lean()
+      .exec();
+
+    // listingId(string) → threadAccountId → thread doc
+    const threadsByListing = new Map<string, Map<string, TradeThread>>();
+
+    for (const thread of threads) {
+      const key = String(thread.listingId);
+      const inner = threadsByListing.get(key) ?? new Map<string, TradeThread>();
+      inner.set(thread.threadAccountId, thread as unknown as TradeThread);
+      threadsByListing.set(key, inner);
+    }
+
+    for (const listing of listings) {
+      const listingKey = String(listing._id);
+      const isOwner = listing.ownerAccountId === member.accountId;
+      const threadDocs = threadsByListing.get(listingKey);
+      const summaries: SerializedTradeThread[] = [];
+
+      if (isOwner) {
+        // 게시자: 요청자별 스레드. 요청 목록(+완료 상대)을 기준으로 만든다.
+        const participants = new Map<string, string>();
+
+        for (const entry of this.getPendingRequests(listing)) {
+          participants.set(entry.requesterAccountId, entry.requesterNickname);
+        }
+
+        if (
+          listing.requesterAccountId != null &&
+          listing.requesterNickname != null
+        ) {
+          participants.set(
+            listing.requesterAccountId,
+            listing.requesterNickname,
+          );
+        }
+
+        for (const [requesterAccountId, nickname] of participants) {
+          const doc = threadDocs?.get(requesterAccountId);
+          summaries.push(
+            this.toThreadSummary(requesterAccountId, nickname, doc, true),
+          );
+        }
+      } else {
+        // 요청자: 자기 스레드 1개. 상대는 게시자.
+        const requests = this.getPendingRequests(listing);
+        const isParticipant =
+          requests.some(
+            (entry) => entry.requesterAccountId === member.accountId,
+          ) || listing.requesterAccountId === member.accountId;
+
+        if (isParticipant) {
+          const doc = threadDocs?.get(member.accountId);
+          summaries.push(
+            this.toThreadSummary(
+              member.accountId,
+              listing.ownerNickname,
+              doc,
+              false,
+            ),
+          );
+        }
+      }
+
+      if (summaries.length > 0) {
+        // 최근 메시지가 있는 스레드를 위로 정렬한다.
+        summaries.sort((a, b) => {
+          const at = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
+          const bt = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
+          return bt - at;
+        });
+        result.set(listingKey, summaries);
+      }
+    }
+
+    return result;
+  }
+
+  private toThreadSummary(
+    threadAccountId: string,
+    nickname: string,
+    doc: TradeThread | undefined,
+    isOwnerView: boolean,
+  ): SerializedTradeThread {
+    return {
+      threadAccountId,
+      nickname,
+      unreadCount: doc
+        ? ((isOwnerView ? doc.ownerUnread : doc.requesterUnread) ?? 0)
+        : 0,
+      lastMessageAt: doc?.lastMessageAt
+        ? new Date(doc.lastMessageAt).toISOString()
+        : undefined,
+      lastMessagePreview: doc?.lastMessagePreview,
     };
   }
 
@@ -1381,6 +1713,7 @@ export class TradeService {
             requestedAt: entry.requestedAt.toISOString(),
           }))
         : undefined,
+      threads: context.threadsByListingId?.get(String(listing._id)),
       requesterNickname: listing.requesterNickname,
       ownerDiscordId: canSeeOwnerContact ? listing.ownerDiscordId : undefined,
       ownerEmail: canSeeOwnerContact ? listing.ownerEmail : undefined,

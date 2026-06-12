@@ -12,11 +12,28 @@ export interface TradeRequestNotification {
   itemName: string;
   price: string;
   requesterNickname: string;
+  // 요청과 함께 첨부한 첫 메시지 미리보기 (있을 때만)
+  messagePreview?: string;
   url: string;
 }
 
+// 메모 대화 새 메시지 알림 페이로드.
+export interface TradeMessageNotification {
+  type: 'trade-message';
+  listingId: string;
+  thread: string;
+  itemName: string;
+  authorNickname: string;
+  preview: string;
+  url: string;
+}
+
+export type TradeNotification =
+  | TradeRequestNotification
+  | TradeMessageNotification;
+
 interface SseEvent {
-  data: TradeRequestNotification;
+  data: TradeNotification;
 }
 
 // 구독이 사라진 엔드포인트로 판단하는 웹푸시 응답 코드
@@ -121,20 +138,68 @@ export class NotificationService {
       ...notification,
     };
 
-    const streams = this.sseStreams.get(ownerAccountId);
+    this.emitSse(ownerAccountId, payload);
 
-    if (streams) {
-      for (const stream of streams) {
-        stream.next({ data: payload });
-      }
+    const requestLine = payload.messagePreview
+      ? `${payload.itemName} / ${payload.price}전 / 거래 요청: "${payload.messagePreview}"`
+      : `${payload.itemName} / ${payload.price}전 / 거래 요청이 왔습니다.`;
+
+    await this.sendWebPush(ownerAccountId, {
+      title: '바람비전 거래 요청',
+      body: requestLine,
+      url: payload.url,
+    });
+  }
+
+  /**
+   * 메모 대화 새 메시지 알림. SSE는 항상 보내고(열린 대화방 실시간 갱신),
+   * 웹푸시는 호출부가 스로틀로 판단한 sendPush가 true일 때만 보낸다.
+   */
+  async notifyTradeMessage(
+    recipientAccountId: string,
+    notification: Omit<TradeMessageNotification, 'type'>,
+    options: { sendPush: boolean },
+  ): Promise<void> {
+    const payload: TradeMessageNotification = {
+      type: 'trade-message',
+      ...notification,
+    };
+
+    this.emitSse(recipientAccountId, payload);
+
+    if (!options.sendPush) {
+      return;
     }
 
+    await this.sendWebPush(recipientAccountId, {
+      title: `${payload.authorNickname}님의 메모`,
+      body: `${payload.preview} (${payload.itemName})`,
+      url: payload.url,
+    });
+  }
+
+  private emitSse(accountId: string, payload: TradeNotification): void {
+    const streams = this.sseStreams.get(accountId);
+
+    if (!streams) {
+      return;
+    }
+
+    for (const stream of streams) {
+      stream.next({ data: payload });
+    }
+  }
+
+  private async sendWebPush(
+    accountId: string,
+    message: { title: string; body: string; url: string },
+  ): Promise<void> {
     if (!this.vapidConfigured) {
       return;
     }
 
     const subscriptions = await this.pushSubscriptionModel
-      .find({ accountId: ownerAccountId })
+      .find({ accountId })
       .exec();
 
     await Promise.all(
@@ -148,11 +213,7 @@ export class NotificationService {
                 auth: subscription.auth,
               },
             },
-            JSON.stringify({
-              title: '바람비전 거래 요청',
-              body: `${payload.itemName} / ${payload.price}전 / 거래 요청이 왔습니다.`,
-              url: payload.url,
-            }),
+            JSON.stringify(message),
           );
         } catch (error) {
           const statusCode = (error as { statusCode?: number }).statusCode;

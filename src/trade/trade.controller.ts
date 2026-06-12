@@ -21,6 +21,7 @@ import { CreateTradeListingDto } from './dto/create-trade-listing.dto';
 import { QueryTradeListingsDto } from './dto/query-trade-listings.dto';
 import { QueryTradePriceSummaryDto } from './dto/query-trade-price-summary.dto';
 import { QueryTradeStatsDto } from './dto/query-trade-stats.dto';
+import { RequestTradeDto } from './dto/request-trade.dto';
 import {
   CreateTradeMessageDto,
   QueryTradeMessagesDto,
@@ -100,6 +101,13 @@ export class TradeController {
     return this.tradeService.findMyTrades(req.member as Member);
   }
 
+  // 전역 안읽음 메모 합계 (헤더 배지용). ':id'보다 먼저 선언해야 한다.
+  @Get('unread-summary')
+  @UseGuards(MemberSessionGuard)
+  getUnreadSummary(@Req() req: TradeRequest) {
+    return this.tradeService.getUnreadSummary(req.member as Member);
+  }
+
   @Get(':id')
   async findListingDetail(@Param('id') id: string, @Req() req: TradeRequest) {
     const member = await this.findOptionalMember(req);
@@ -126,8 +134,23 @@ export class TradeController {
   @Post(':id/request')
   @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
-  requestTrade(@Param('id') id: string, @Req() req: TradeRequest) {
-    return this.tradeService.requestTrade(id, req.member as Member);
+  requestTrade(
+    @Param('id') id: string,
+    @Req() req: TradeRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: RequestTradeDto,
+  ) {
+    return this.tradeService.requestTrade(
+      id,
+      req.member as Member,
+      dto.message,
+    );
   }
 
   // 요청자의 요청 취소 또는 게시자의 특정 요청 거절(?requester=accountId).
