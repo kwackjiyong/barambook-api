@@ -153,6 +153,29 @@ export class AuthController {
     return this.serializeMember(member);
   }
 
+  // 메월 소유 검증 1단계: 서버가 배경 변경 챌린지를 발급한다.
+  @Post('/maplestory-world-verification')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  startMaplestoryWorldVerification(
+    @Req() req: AuthenticatedRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: UpdateMaplestoryWorldIdDto,
+  ) {
+    return this.memberService.startMaplestoryWorldVerification(
+      req.member as Member,
+      dto.maplestoryWorldId,
+      dto.profileName,
+    );
+  }
+
+  // 메월 소유 검증 2단계: 챌린지 배경으로 변경됐는지 확인하고 저장한다.
   @Patch('/maplestory-world-id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(MemberSessionGuard)
@@ -170,10 +193,7 @@ export class AuthController {
     const member = await this.memberService.updateMaplestoryWorldId(
       req.member as Member,
       dto.maplestoryWorldId,
-      {
-        profileName: dto.profileName,
-        backgroundId: dto.backgroundId,
-      },
+      dto.profileName,
     );
 
     return this.serializeMember(member);

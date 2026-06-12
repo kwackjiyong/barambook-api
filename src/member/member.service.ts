@@ -9,7 +9,10 @@ import { Model } from 'mongoose';
 import { AuthProvider, Member } from './member.schema';
 import {
   fetchMverseProfileByCode,
+  getMverseBackgroundById,
   isSameMverseProfileName,
+  MverseBackground,
+  pickMverseBackgroundChallenge,
   sanitizeMverseProfileCode,
 } from './mverse-profile';
 
@@ -21,9 +24,17 @@ export interface SsoProfile {
   discordId?: string;
 }
 
-export interface MaplestoryWorldVerificationInput {
+// 배경 변경 챌린지 시작 응답. 사용자에게 "이 배경으로 바꾸라"고 안내한다.
+export interface MaplestoryWorldVerificationChallenge {
   profileName: string;
-  backgroundId?: number;
+  profileCode: string;
+  avatarImageUrl?: string;
+  currentBackground: {
+    backgroundId: number;
+    title?: string;
+  };
+  challenge: MverseBackground;
+  expiresInMinutes: number;
 }
 
 export interface AuthenticatedSession {
@@ -36,6 +47,8 @@ const NICKNAME_CHANGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 // 거래 시 메월 닉네임 재검증 주기. 이 시간 안에 통과한 계정은 다시 조회하지 않는다.
 const MVERSE_RECHECK_INTERVAL_MS = 10 * 60 * 1000;
+// 배경 변경 챌린지 유효시간. 이 안에 배경을 바꾸고 저장해야 한다.
+const MVERSE_CHALLENGE_TTL_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class MemberService {
@@ -252,15 +265,20 @@ export class MemberService {
     return member;
   }
 
-  async updateMaplestoryWorldId(
+  /**
+   * 메월 계정 소유 검증 1단계: 배경 변경 챌린지 발급.
+   * 현재 배경을 조회해 그와 다른 배경을 서버가 골라 저장해 두고 사용자에게 안내한다.
+   * (챌린지를 서버가 정하므로 클라이언트가 임의 배경으로 통과시킬 수 없다)
+   */
+  async startMaplestoryWorldVerification(
     member: Member,
     maplestoryWorldId: string,
-    verification: MaplestoryWorldVerificationInput,
-  ): Promise<Member> {
+    profileName: string,
+  ): Promise<MaplestoryWorldVerificationChallenge> {
     const next = sanitizeMverseProfileCode(maplestoryWorldId);
-    const profileName = verification.profileName.trim();
+    const inputName = profileName.trim();
 
-    if (!profileName) {
+    if (!inputName) {
       throw new BadRequestException('메이플스토리월드 닉네임을 입력하세요.');
     }
 
@@ -268,49 +286,132 @@ export class MemberService {
 
     if (!profile) {
       throw new BadRequestException(
-        '메이플스토리월드 프로필을 찾지 못했습니다.',
+        '메이플스토리월드 프로필을 찾지 못했습니다. 닉네임#태그를 확인하세요.',
       );
     }
 
-    if (sanitizeMverseProfileCode(profile.profileCode) !== next) {
+    if (!isSameMverseProfileName(inputName, profile.profileName)) {
       throw new BadRequestException(
-        '메이플스토리월드 프로필 태그가 일치하지 않습니다.',
+        '입력한 닉네임과 조회된 프로필명이 다릅니다. 닉네임#태그를 확인하세요.',
       );
     }
 
-    if (!isSameMverseProfileName(profileName, profile.profileName)) {
+    if (profile.backgroundId == null) {
       throw new BadRequestException(
-        '메이플스토리월드 닉네임이 일치하지 않습니다.',
+        '메이플스토리월드 프로필 배경 정보를 확인할 수 없습니다. 잠시 후 다시 시도하세요.',
       );
     }
 
-    if (verification.backgroundId != null) {
-      if (profile.backgroundId == null) {
-        throw new BadRequestException(
-          '메이플스토리월드 프로필 배경 정보를 확인할 수 없습니다.',
-        );
-      }
+    await this.assertMverseProfileNotTaken(next, member.accountId);
 
-      if (profile.backgroundId !== verification.backgroundId) {
-        throw new BadRequestException(
-          '메이플스토리월드 프로필 배경 변경이 확인되지 않았습니다.',
-        );
-      }
-    }
+    const challenge = pickMverseBackgroundChallenge(profile.backgroundId);
 
-    const duplicate = await this.memberModel
-      .findOne({
-        maplestoryWorldId: next,
-        accountId: { $ne: member.accountId },
-      })
-      .select({ _id: 1 })
+    await this.memberModel
+      .updateOne(
+        { accountId: member.accountId },
+        {
+          $set: {
+            maplestoryWorldChallenge: {
+              profileCode: next,
+              profileName: profile.profileName,
+              backgroundId: challenge.backgroundId,
+              requestedAt: new Date(),
+            },
+          },
+        },
+      )
       .exec();
 
-    if (duplicate) {
+    return {
+      profileName: profile.profileName,
+      profileCode: profile.profileCode,
+      avatarImageUrl: profile.avatarImageUrl,
+      currentBackground: {
+        backgroundId: profile.backgroundId,
+        title:
+          getMverseBackgroundById(profile.backgroundId)?.title ??
+          profile.backgroundTitle,
+      },
+      challenge,
+      expiresInMinutes: MVERSE_CHALLENGE_TTL_MS / (60 * 1000),
+    };
+  }
+
+  /**
+   * 메월 계정 소유 검증 2단계: 배경 변경 확인 후 인증 완료.
+   * 서버가 발급해 둔 챌린지 배경으로 실제로 변경되었는지 재조회로 검증한다.
+   */
+  async updateMaplestoryWorldId(
+    member: Member,
+    maplestoryWorldId: string,
+    profileName: string,
+  ): Promise<Member> {
+    const next = sanitizeMverseProfileCode(maplestoryWorldId);
+    const inputName = profileName.trim();
+
+    if (!inputName) {
+      throw new BadRequestException('메이플스토리월드 닉네임을 입력하세요.');
+    }
+
+    const stored = await this.memberModel
+      .findOne({ accountId: member.accountId })
+      .select({ maplestoryWorldChallenge: 1 })
+      .exec();
+    const challenge = stored?.maplestoryWorldChallenge;
+
+    if (
+      !challenge ||
+      challenge.profileCode !== next ||
+      !isSameMverseProfileName(challenge.profileName, inputName)
+    ) {
       throw new BadRequestException(
-        '이미 다른 계정에 인증된 메이플스토리월드 프로필입니다.',
+        '배경 변경 인증이 시작되지 않았습니다. 프로필 확인부터 진행하세요.',
       );
     }
+
+    if (
+      Date.now() - new Date(challenge.requestedAt).getTime() >
+      MVERSE_CHALLENGE_TTL_MS
+    ) {
+      await this.clearMaplestoryWorldChallenge(member.accountId);
+      throw new BadRequestException(
+        '배경 변경 인증 유효시간(30분)이 지났습니다. 프로필 확인부터 다시 진행하세요.',
+      );
+    }
+
+    const profile = await fetchMverseProfileByCode(next);
+
+    if (!profile) {
+      throw new BadRequestException(
+        '메이플스토리월드 프로필을 다시 확인하지 못했습니다.',
+      );
+    }
+
+    if (!isSameMverseProfileName(profile.profileName, inputName)) {
+      await this.clearMaplestoryWorldChallenge(member.accountId);
+      throw new BadRequestException(
+        '프로필 닉네임이 변경되었습니다. 프로필 확인부터 다시 진행하세요.',
+      );
+    }
+
+    if (profile.backgroundId == null) {
+      throw new BadRequestException(
+        '메이플스토리월드 프로필 배경 정보를 확인할 수 없습니다. 잠시 후 다시 시도하세요.',
+      );
+    }
+
+    if (profile.backgroundId !== challenge.backgroundId) {
+      const target = getMverseBackgroundById(challenge.backgroundId);
+      const current = getMverseBackgroundById(profile.backgroundId);
+
+      throw new BadRequestException(
+        `아직 지정한 배경(${target?.title ?? `#${challenge.backgroundId}`})으로 변경되지 않았습니다. 현재 배경: ${
+          current?.title ?? `#${profile.backgroundId}`
+        }`,
+      );
+    }
+
+    await this.assertMverseProfileNotTaken(next, member.accountId);
 
     const verifiedAt = new Date();
 
@@ -323,6 +424,7 @@ export class MemberService {
             maplestoryWorldProfileName: profile.profileName,
             maplestoryWorldVerifiedAt: verifiedAt,
           },
+          $unset: { maplestoryWorldChallenge: 1 },
         },
       )
       .exec();
@@ -332,6 +434,34 @@ export class MemberService {
     member.maplestoryWorldVerifiedAt = verifiedAt;
     this.mverseRecheckPassedAt.set(member.accountId, Date.now());
     return member;
+  }
+
+  // 같은 메월 프로필을 여러 계정이 인증하지 못하게 막는다.
+  private async assertMverseProfileNotTaken(
+    profileCode: string,
+    accountId: string,
+  ): Promise<void> {
+    const duplicate = await this.memberModel
+      .findOne({
+        maplestoryWorldId: profileCode,
+        accountId: { $ne: accountId },
+      })
+      .select({ _id: 1 })
+      .exec();
+
+    if (duplicate) {
+      throw new BadRequestException(
+        '이미 다른 계정에 인증된 메이플스토리월드 프로필입니다.',
+      );
+    }
+  }
+
+  private async clearMaplestoryWorldChallenge(
+    accountId: string,
+  ): Promise<void> {
+    await this.memberModel
+      .updateOne({ accountId }, { $unset: { maplestoryWorldChallenge: 1 } })
+      .exec();
   }
 
   async updateBaramNickname(

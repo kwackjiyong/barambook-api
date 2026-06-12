@@ -40,6 +40,16 @@ export class Member extends Document {
   @Prop()
   maplestoryWorldVerifiedAt?: Date;
 
+  // 메월 계정 소유 검증용 배경 변경 챌린지.
+  // 서버가 현재 배경과 다른 배경을 골라 저장해 두고, 인증 완료 시 재조회로 검증한다.
+  @Prop({ type: Object })
+  maplestoryWorldChallenge?: {
+    profileCode: string;
+    profileName: string;
+    backgroundId: number;
+    requestedAt: Date;
+  };
+
   // 바람의나라 게임 캐릭터 닉네임. 거래소 게시글 등록/요청에 필요하다.
   @Prop()
   baramNickname?: string;
