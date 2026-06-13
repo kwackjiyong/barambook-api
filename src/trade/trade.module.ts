@@ -5,7 +5,6 @@ import { MemberModule } from '../member/member.module';
 import { NotificationModule } from '../notification/notification.module';
 import { TradeController } from './trade.controller';
 import {
-  TradeCancellationSchema,
   TradeListingSchema,
   TradeMessageSchema,
   TradeThreadSchema,
@@ -17,7 +16,6 @@ import { TradeService } from './trade.service';
     MongooseModule.forFeature(
       [
         { name: 'trade_listings', schema: TradeListingSchema },
-        { name: 'trade_cancellations', schema: TradeCancellationSchema },
         { name: 'trade_messages', schema: TradeMessageSchema },
         { name: 'trade_threads', schema: TradeThreadSchema },
         { name: 'items', schema: ItemSchema },

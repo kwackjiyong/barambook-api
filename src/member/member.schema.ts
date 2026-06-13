@@ -54,6 +54,27 @@ export class Member extends Document {
   @Prop()
   baramNickname?: string;
 
+  // 의상실에서 저장한 대표 캐릭터. request는 렌더러 숫자 코드,
+  // input은 재편집용 이름 값. updatedAt은 캐릭터 이미지 캐시 무효화 기준.
+  @Prop({ type: Object })
+  renderCharacter?: {
+    request: {
+      head: number;
+      headc: number;
+      body: number;
+      bodyc: number;
+      weapon: number;
+      weaponc: number;
+      weaponrc?: number;
+      shield: number;
+      shieldc: number;
+      frame: number;
+      isAction: 'Y' | 'N';
+    };
+    input?: Record<string, unknown>;
+    updatedAt: Date;
+  };
+
   // 서버 허용목록(OPERATOR_ACCOUNTS)으로만 부여되는 운영자 권한.
   @Prop({ default: false })
   isOperator: boolean;

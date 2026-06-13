@@ -168,6 +168,19 @@ export class MemberService {
       .exec();
   }
 
+  // 대표 캐릭터 이미지 응답용: 저장된 렌더 파라미터만 조회
+  async findRenderCharacter(
+    accountId: string,
+  ): Promise<Member['renderCharacter'] | null> {
+    const member = await this.memberModel
+      .findOne({ accountId })
+      .select({ renderCharacter: 1 })
+      .lean()
+      .exec();
+
+    return member?.renderCharacter ?? null;
+  }
+
   // 하트비트: 사이트 마지막 활동 시각 갱신
   async touchLastActive(accountId: string): Promise<void> {
     await this.memberModel
@@ -482,6 +495,26 @@ export class MemberService {
       .exec();
 
     member.baramNickname = next;
+    return member;
+  }
+
+  // 의상실 대표 캐릭터 저장. updatedAt은 캐릭터 이미지 캐시 무효화 기준이 된다.
+  async updateRenderCharacter(
+    member: Member,
+    request: NonNullable<Member['renderCharacter']>['request'],
+    input?: Record<string, unknown>,
+  ): Promise<Member> {
+    const renderCharacter: Member['renderCharacter'] = {
+      request,
+      input,
+      updatedAt: new Date(),
+    };
+
+    await this.memberModel
+      .updateOne({ accountId: member.accountId }, { $set: { renderCharacter } })
+      .exec();
+
+    member.renderCharacter = renderCharacter;
     return member;
   }
 

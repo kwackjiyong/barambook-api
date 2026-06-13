@@ -172,7 +172,7 @@ export class NotificationService {
     }
 
     await this.sendWebPush(recipientAccountId, {
-      title: `${payload.authorNickname}님의 메모`,
+      title: `${payload.authorNickname}님의 메시지`,
       body: `${payload.preview} (${payload.itemName})`,
       url: payload.url,
     });

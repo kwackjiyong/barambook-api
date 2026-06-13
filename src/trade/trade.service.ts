@@ -12,12 +12,12 @@ import { MemberService } from '../member/member.service';
 import { resolveMverseOnlineByTags } from '../member/mverse-online';
 import { NotificationService } from '../notification/notification.service';
 import { CreateTradeListingDto } from './dto/create-trade-listing.dto';
+import { QueryTradeItemMarketDto } from './dto/query-trade-item-market.dto';
 import { QueryTradeListingsDto } from './dto/query-trade-listings.dto';
 import { TradeResolveStatusDto } from './dto/update-trade-status.dto';
 import {
   DYEABLE_ITEM_TYPES,
   EQUIP_ITEM_TYPES,
-  TradeCancellation,
   TradeItemType,
   TradeListing,
   TradeMessage,
@@ -68,6 +68,8 @@ export interface SerializedTradeListing {
   quantity: number;
   memo?: string;
   ownerNickname: string;
+  // 참여자(게시자/요청자)에게만 내려감 — 대화 패널 캐릭터 조회용
+  ownerAccountId?: string;
   ownerMaplestoryWorldId?: string;
   ownerBaramNickname?: string;
   ownerPresence?: TradeOwnerPresence;
@@ -125,6 +127,76 @@ export interface TradeItemPriceSummary {
   averagePrice: number;
   latestPrice: number;
   lastTradedAt: string;
+}
+
+// 아이템 시세 패널의 매물 한 건 (공개 정보만 — 연락처/요청자 정보 미포함)
+export interface TradeItemMarketEntry {
+  id: string;
+  type: TradeListing['type'];
+  status: TradeListing['status'];
+  price: string;
+  numericPrice: number | null;
+  quantity: number;
+  durability?: number;
+  dyeItemId?: number;
+  dyeName?: string;
+  transformItemId?: number;
+  transformItemName?: string;
+  ownerNickname: string;
+  createdAt: string;
+  closedAt?: string;
+}
+
+// 같은 아이템·옵션의 현재 등록 매물(호가)과 거래완료(체결가)를 나눠 보여준다.
+export interface TradeItemMarket {
+  itemId: number;
+  dyeItemId?: number;
+  transformItemId?: number;
+  // 현재 거래 가능/진행 중(open·requested) 매물 — 지금 내놓은 가격(호가)
+  open: TradeItemMarketEntry[];
+  openCount: number;
+  openAveragePrice: number | null;
+  // 최근 거래완료 매물 — 실제 체결가
+  completed: TradeItemMarketEntry[];
+  completedCount: number;
+  completedAveragePrice: number | null;
+}
+
+// 시세보기 탭(주식형) 한 줄. 인기 거래 물품별 평균 호가/평균 체결가/변동률.
+export interface TradeMarketOverviewItem {
+  itemId: number;
+  itemName: string;
+  itemType?: TradeItemType;
+  // 현재 등록 매물 평균(호가)
+  openAveragePrice: number | null;
+  openCount: number;
+  // 거래완료 평균(체결가) + 최근 체결가
+  completedAveragePrice: number | null;
+  latestPrice: number | null;
+  sampleCount: number;
+  lastTradedAt: string;
+  // 체결가 기준 변동률 (소수, 0.05 = +5%). 표본이 부족하면 null.
+  changeRate: number | null;
+  // 미니 스파크라인용 최근 체결가(오래된→최신 순)
+  spark: number[];
+}
+
+// 거래 상세 꺾은선 그래프용 체결가 추이.
+export interface TradePricePoint {
+  closedAt: string;
+  price: number;
+}
+
+export interface TradePriceHistory {
+  itemId: number;
+  dyeItemId?: number;
+  transformItemId?: number;
+  points: TradePricePoint[];
+  averagePrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  // 구간 첫 체결가 대비 마지막 체결가 변동률 (소수)
+  changeRate: number | null;
 }
 
 export interface TradeDyeOptions {
@@ -190,6 +262,14 @@ const OWNER_LISTING_LIMIT = 10;
 const PRICE_STATS_SAMPLE_LIMIT = 20;
 const PRICE_SUMMARY_DEFAULT_LIMIT = 8;
 const PRICE_SUMMARY_SCAN_LIMIT = 400;
+// 시세보기 탭 기본 노출 종목 수와 미니 스파크라인 점 개수
+const MARKET_OVERVIEW_DEFAULT_LIMIT = 12;
+const MARKET_OVERVIEW_SPARK_POINTS = 12;
+// 거래 상세 꺾은선 그래프 최대 점 개수와 기본 조회 기간(일)
+const PRICE_HISTORY_MAX_POINTS = 60;
+const PRICE_HISTORY_DEFAULT_DAYS = 90;
+// 아이템 시세 패널에 노출할 현재 매물/체결 목록 최대 건수
+const MARKET_LIST_LIMIT = 12;
 const MY_TRADES_LIMIT = 50;
 // 활동중 우선 정렬을 위해 한 번에 스캔하는 최대 게시글 수
 const LISTING_SCAN_LIMIT = 400;
@@ -199,9 +279,6 @@ const ACTIVE_LISTING_LIMIT = 5;
 const ACTIVE_REQUEST_LIMIT = 5;
 // 게시글 하나에 쌓일 수 있는 요청 한도
 const LISTING_REQUEST_LIMIT = 20;
-// 주간 취소 패널티: 7일 안에 3건 취소 시 7일간 거래 불가
-const CANCEL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const CANCEL_LIMIT_PER_WINDOW = 3;
 const TRADE_MESSAGE_LIMIT = 100;
 // 요청 첫 메모 최대 길이 (DTO와 동일)
 const REQUEST_MESSAGE_MAX_LENGTH = 200;
@@ -211,6 +288,8 @@ const MESSAGE_PUSH_THROTTLE_MS = 5 * 60 * 1000;
 const MESSAGE_PREVIEW_LENGTH = 60;
 // 마지막 사이트 활동이 이 시간 이내면 게시자를 '활동중'으로 본다
 const OWNER_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+// 대화방을 마지막으로 조회(FE 5초 폴링)한 지 이 시간 이내면 '대화 참여중'으로 본다
+const THREAD_PRESENCE_WINDOW_MS = 15 * 1000;
 const STATUS_SORT_ORDER: TradeStatus[] = [
   'requested',
   'open',
@@ -253,8 +332,6 @@ export class TradeService {
   constructor(
     @InjectModel('trade_listings', 'barambook')
     private readonly tradeListingModel: Model<TradeListing>,
-    @InjectModel('trade_cancellations', 'barambook')
-    private readonly tradeCancellationModel: Model<TradeCancellation>,
     @InjectModel('trade_messages', 'barambook')
     private readonly tradeMessageModel: Model<TradeMessage>,
     @InjectModel('trade_threads', 'barambook')
@@ -283,6 +360,17 @@ export class TradeService {
     }
 
     const hasPriceFilter = Object.keys(priceConditions).length > 0;
+    const sortByPrice = query.sort === 'price';
+    // 가격순: 팝니다는 싼 매물 먼저(오름), 삽니다는 비싼 매물 먼저(내림)
+    const priceDirection = query.type === 'buy' ? -1 : 1;
+    const sortStage: Record<string, 1 | -1> = sortByPrice
+      ? {
+          statusOrder: 1,
+          hasNumericPrice: -1,
+          numericPrice: priceDirection,
+          createdAt: -1,
+        }
+      : { statusOrder: 1, createdAt: -1 };
 
     const [result] = await this.tradeListingModel
       .aggregate<{
@@ -294,33 +382,35 @@ export class TradeService {
         {
           $addFields: {
             statusOrder: { $indexOfArray: [STATUS_SORT_ORDER, '$status'] },
-          },
-        },
-        // 가격 필터가 있을 때만 숫자(콤마 허용) 가격을 파싱해 거른다
-        ...(hasPriceFilter
-          ? [
-              {
-                $addFields: {
-                  numericPrice: {
-                    $convert: {
-                      input: {
-                        $replaceAll: {
-                          input: { $trim: { input: '$price' } },
-                          find: ',',
-                          replacement: '',
-                        },
-                      },
-                      to: 'double',
-                      onError: null,
-                      onNull: null,
-                    },
+            // 숫자(콤마 허용) 가격. '가격 협의' 등은 null이 되어 가격순에서 뒤로 밀린다.
+            numericPrice: {
+              $convert: {
+                input: {
+                  $replaceAll: {
+                    input: { $trim: { input: '$price' } },
+                    find: ',',
+                    replacement: '',
                   },
                 },
+                to: 'double',
+                onError: null,
+                onNull: null,
               },
-              { $match: { numericPrice: priceConditions } },
-            ]
+            },
+          },
+        },
+        {
+          $addFields: {
+            hasNumericPrice: {
+              $cond: [{ $eq: ['$numericPrice', null] }, 0, 1],
+            },
+          },
+        },
+        // 가격 필터가 있을 때만 숫자 가격으로 범위를 거른다
+        ...(hasPriceFilter
+          ? [{ $match: { numericPrice: priceConditions } }]
           : []),
-        { $sort: { statusOrder: 1, createdAt: -1 } },
+        { $sort: sortStage },
         {
           $facet: {
             items: [{ $limit: LISTING_SCAN_LIMIT }],
@@ -361,33 +451,38 @@ export class TradeService {
 
     const mverseOnlineByTag = await resolveMverseOnlineByTags(onlineCheckTags);
 
-    // 바람비전 접속여부 > 메월 접속여부 > 등록순 (상태 그룹 안에서)
-    const ranked = result.items
-      .map((listing, index) => ({
-        listing,
-        index,
-        statusOrder: STATUS_SORT_ORDER.indexOf(listing.status),
-        presenceRank: this.resolvePresenceRank(
-          listing,
-          lastActiveByAccountId,
-          mverseOnlineByTag,
-        ),
-      }))
-      .sort((a, b) => {
-        if (a.statusOrder !== b.statusOrder) {
-          return a.statusOrder - b.statusOrder;
-        }
+    // 가격순은 집계에서 이미 정렬되어 있어 그대로 쓰고,
+    // 기본순은 상태 그룹 안에서 바람비전 접속 > 메월 접속 > 등록순으로 재정렬한다.
+    const orderedItems = sortByPrice
+      ? result.items
+      : result.items
+          .map((listing, index) => ({
+            listing,
+            index,
+            statusOrder: STATUS_SORT_ORDER.indexOf(listing.status),
+            presenceRank: this.resolvePresenceRank(
+              listing,
+              lastActiveByAccountId,
+              mverseOnlineByTag,
+            ),
+          }))
+          .sort((a, b) => {
+            if (a.statusOrder !== b.statusOrder) {
+              return a.statusOrder - b.statusOrder;
+            }
 
-        if (a.presenceRank !== b.presenceRank) {
-          return a.presenceRank - b.presenceRank;
-        }
+            if (a.presenceRank !== b.presenceRank) {
+              return a.presenceRank - b.presenceRank;
+            }
 
-        return a.index - b.index;
-      });
+            return a.index - b.index;
+          })
+          .map((entry) => entry.listing);
 
-    const pageItems = ranked
-      .slice((page - 1) * pageSize, page * pageSize)
-      .map((entry) => entry.listing);
+    const pageItems = orderedItems.slice(
+      (page - 1) * pageSize,
+      page * pageSize,
+    );
 
     const marketStatsByKey = await this.loadMarketStats(pageItems);
 
@@ -588,6 +683,319 @@ export class TradeService {
       }));
   }
 
+  // 시세보기 탭(주식형). 인기(체결 많은) 아이템별 평균 호가/평균 체결가/변동률을 모은다.
+  // 옵션(염색/형상변환) 없는 완료/등록 매물 기준으로 집계한다.
+  async getMarketOverview(
+    limit = MARKET_OVERVIEW_DEFAULT_LIMIT,
+  ): Promise<TradeMarketOverviewItem[]> {
+    // 최근 완료 거래를 스캔해 아이템별로 묶는다(가격이 자유 문자열이라 앱에서 집계).
+    const completedDocs = await this.tradeListingModel
+      .find({ status: 'completed', dyeItemId: null, transformItemId: null })
+      .sort({ closedAt: -1 })
+      .limit(PRICE_SUMMARY_SCAN_LIMIT)
+      .select({
+        itemId: 1,
+        itemName: 1,
+        itemType: 1,
+        price: 1,
+        closedAt: 1,
+        createdAt: 1,
+      })
+      .lean()
+      .exec();
+
+    const groups = new Map<
+      number,
+      {
+        itemId: number;
+        itemName: string;
+        itemType?: TradeItemType;
+        // closedAt 내림차순(최신 먼저)으로 쌓이는 가격
+        prices: number[];
+        lastTradedAt: Date;
+      }
+    >();
+
+    for (const listing of completedDocs) {
+      const price = parseNumericPrice(listing.price);
+
+      if (price == null) {
+        continue;
+      }
+
+      const group = groups.get(listing.itemId);
+
+      if (!group) {
+        groups.set(listing.itemId, {
+          itemId: listing.itemId,
+          itemName: listing.itemName,
+          itemType: listing.itemType,
+          prices: [price],
+          lastTradedAt: listing.closedAt ?? listing.createdAt,
+        });
+        continue;
+      }
+
+      if (group.prices.length < PRICE_STATS_SAMPLE_LIMIT) {
+        group.prices.push(price);
+      }
+    }
+
+    // 인기 = 체결 표본이 많은 순, 동률이면 최근 거래순
+    const topGroups = Array.from(groups.values())
+      .sort((a, b) => {
+        if (b.prices.length !== a.prices.length) {
+          return b.prices.length - a.prices.length;
+        }
+
+        return b.lastTradedAt.getTime() - a.lastTradedAt.getTime();
+      })
+      .slice(0, limit);
+
+    if (topGroups.length === 0) {
+      return [];
+    }
+
+    // 상위 아이템의 현재 호가 평균/건수 (옵션 없는 등록·진행중 매물)
+    const openStats = await this.tradeListingModel
+      .aggregate<{ _id: number; avg: number; count: number }>([
+        {
+          $match: {
+            itemId: { $in: topGroups.map((group) => group.itemId) },
+            status: { $in: ['open', 'requested'] as TradeStatus[] },
+            dyeItemId: null,
+            transformItemId: null,
+          },
+        },
+        {
+          $addFields: {
+            numericPrice: {
+              $convert: {
+                input: {
+                  $replaceAll: {
+                    input: { $trim: { input: '$price' } },
+                    find: ',',
+                    replacement: '',
+                  },
+                },
+                to: 'double',
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+        { $match: { numericPrice: { $gt: 0 } } },
+        {
+          $group: {
+            _id: '$itemId',
+            avg: { $avg: '$numericPrice' },
+            count: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    const openByItem = new Map(openStats.map((entry) => [entry._id, entry]));
+
+    return topGroups.map((group) => {
+      const open = openByItem.get(group.itemId);
+      // prices는 최신→과거 순. 스파크라인/추이는 과거→최신으로 뒤집어 쓴다.
+      const chronological = [...group.prices].reverse();
+      const average = Math.round(
+        group.prices.reduce((sum, price) => sum + price, 0) /
+          group.prices.length,
+      );
+
+      return {
+        itemId: group.itemId,
+        itemName: group.itemName,
+        itemType: group.itemType,
+        openAveragePrice: open ? Math.round(open.avg) : null,
+        openCount: open?.count ?? 0,
+        completedAveragePrice: average,
+        latestPrice: group.prices[0],
+        sampleCount: group.prices.length,
+        lastTradedAt: group.lastTradedAt.toISOString(),
+        changeRate: this.computeChangeRate(chronological),
+        spark: chronological.slice(-MARKET_OVERVIEW_SPARK_POINTS),
+      };
+    });
+  }
+
+  // 거래 상세 꺾은선 그래프용 체결가 추이. 같은 옵션(염색/형상변환) 기준으로 모은다.
+  async getPriceHistory(query: {
+    itemId: number;
+    dyeItemId?: number;
+    transformItemId?: number;
+    days?: number;
+  }): Promise<TradePriceHistory> {
+    const { itemId } = query;
+    const days = query.days ?? PRICE_HISTORY_DEFAULT_DAYS;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const docs = await this.tradeListingModel
+      .find({
+        itemId,
+        status: 'completed',
+        dyeItemId: query.dyeItemId ?? null,
+        transformItemId: query.transformItemId ?? null,
+        closedAt: { $gte: since },
+      })
+      .sort({ closedAt: 1 })
+      .limit(PRICE_HISTORY_MAX_POINTS)
+      .select({ price: 1, closedAt: 1, createdAt: 1 })
+      .lean()
+      .exec();
+
+    const points: TradePricePoint[] = [];
+
+    for (const doc of docs) {
+      const price = parseNumericPrice(doc.price);
+      const closedAt = doc.closedAt ?? doc.createdAt;
+
+      if (price == null || closedAt == null) {
+        continue;
+      }
+
+      points.push({ closedAt: new Date(closedAt).toISOString(), price });
+    }
+
+    if (points.length === 0) {
+      return {
+        itemId,
+        dyeItemId: query.dyeItemId,
+        transformItemId: query.transformItemId,
+        points,
+        averagePrice: null,
+        minPrice: null,
+        maxPrice: null,
+        changeRate: null,
+      };
+    }
+
+    const prices = points.map((point) => point.price);
+    const total = prices.reduce((sum, price) => sum + price, 0);
+    const first = prices[0];
+    const last = prices[prices.length - 1];
+
+    return {
+      itemId,
+      dyeItemId: query.dyeItemId,
+      transformItemId: query.transformItemId,
+      points,
+      averagePrice: Math.round(total / prices.length),
+      minPrice: Math.min(...prices),
+      maxPrice: Math.max(...prices),
+      changeRate: first > 0 ? (last - first) / first : null,
+    };
+  }
+
+  // 체결가 추이(과거→최신)에서 앞 절반 대비 뒤 절반 평균의 변동률. 표본 2건 미만이면 null.
+  private computeChangeRate(chronological: number[]): number | null {
+    if (chronological.length < 2) {
+      return null;
+    }
+
+    const mid = Math.floor(chronological.length / 2);
+    const older = chronological.slice(0, mid);
+    const recent = chronological.slice(mid);
+    const avg = (list: number[]) =>
+      list.reduce((sum, price) => sum + price, 0) / list.length;
+    const olderAvg = avg(older);
+
+    if (olderAvg <= 0) {
+      return null;
+    }
+
+    return (avg(recent) - olderAvg) / olderAvg;
+  }
+
+  // 같은 아이템·옵션의 현재 등록 매물(호가)과 최근 거래완료(체결가)를 나눠 돌려준다.
+  // 가격 판단 근거 제공용. 염색/형상변환이 지정되면 동일 옵션끼리, 미지정이면
+  // 옵션 없는 표본끼리 비교한다(getItemPriceStats의 표본 규칙과 일치).
+  async getItemMarket(
+    query: QueryTradeItemMarketDto,
+  ): Promise<TradeItemMarket> {
+    const { itemId } = query;
+    const optionFilter = {
+      dyeItemId: query.dyeItemId ?? null,
+      transformItemId: query.transformItemId ?? null,
+    };
+    const openStatus = { $in: ['open', 'requested'] as TradeStatus[] };
+
+    const [openDocs, completedDocs, openCount, completedCount] =
+      await Promise.all([
+        // 표본이 작아(최대 MARKET_LIST_LIMIT건) 하이드레이트 비용이 미미하므로 lean을 쓰지 않는다.
+        this.tradeListingModel
+          .find({ itemId, status: openStatus, ...optionFilter })
+          .sort({ createdAt: -1 })
+          .limit(MARKET_LIST_LIMIT)
+          .exec(),
+        this.tradeListingModel
+          .find({ itemId, status: 'completed', ...optionFilter })
+          .sort({ closedAt: -1 })
+          .limit(MARKET_LIST_LIMIT)
+          .exec(),
+        this.tradeListingModel
+          .countDocuments({ itemId, status: openStatus, ...optionFilter })
+          .exec(),
+        this.tradeListingModel
+          .countDocuments({ itemId, status: 'completed', ...optionFilter })
+          .exec(),
+      ]);
+
+    const open = openDocs.map((doc) => this.toMarketEntry(doc));
+    const completed = completedDocs.map((doc) => this.toMarketEntry(doc));
+
+    return {
+      itemId,
+      dyeItemId: query.dyeItemId,
+      transformItemId: query.transformItemId,
+      open,
+      openCount,
+      openAveragePrice: this.averageNumericPrice(open),
+      completed,
+      completedCount,
+      completedAveragePrice: this.averageNumericPrice(completed),
+    };
+  }
+
+  private toMarketEntry(listing: TradeListing): TradeItemMarketEntry {
+    return {
+      id: String(listing._id),
+      type: listing.type,
+      status: listing.status,
+      price: listing.price,
+      numericPrice: parseNumericPrice(listing.price),
+      quantity: listing.quantity,
+      durability: listing.durability,
+      dyeItemId: listing.dyeItemId,
+      dyeName: listing.dyeName,
+      transformItemId: listing.transformItemId,
+      transformItemName: listing.transformItemName,
+      // 거래소 노출 닉네임은 바람의나라 닉네임을 우선한다.
+      ownerNickname: listing.ownerBaramNickname ?? listing.ownerNickname,
+      createdAt: listing.createdAt.toISOString(),
+      closedAt: listing.closedAt?.toISOString(),
+    };
+  }
+
+  // 숫자(콤마 허용)로 적힌 가격만 모아 평균을 낸다. 표본이 없으면 null.
+  private averageNumericPrice(entries: TradeItemMarketEntry[]): number | null {
+    const prices = entries
+      .map((entry) => entry.numericPrice)
+      .filter((price): price is number => price != null);
+
+    if (prices.length === 0) {
+      return null;
+    }
+
+    return Math.round(
+      prices.reduce((sum, price) => sum + price, 0) / prices.length,
+    );
+  }
+
   async createListing(
     member: Member,
     dto: CreateTradeListingDto,
@@ -595,7 +1003,6 @@ export class TradeService {
     this.assertHasContact(member);
     await this.memberService.assertVerifiedMverseProfile(member);
     this.assertHasBaramNickname(member);
-    await this.assertNotTradeBanned(member.accountId);
 
     // 거래 등록 게시물은 진행 중 기준 최대 5개로 제한한다.
     const activeCount = await this.tradeListingModel
@@ -685,7 +1092,6 @@ export class TradeService {
   ): Promise<SerializedTradeListing> {
     await this.memberService.assertVerifiedMverseProfile(member);
     this.assertHasBaramNickname(member);
-    await this.assertNotTradeBanned(member.accountId);
 
     const listing = await this.findListingById(id);
 
@@ -820,13 +1226,12 @@ export class TradeService {
       }
 
       listing.requesterAccountId = selected.requesterAccountId;
-      listing.requesterNickname = selected.requesterNickname;
+      // 노출 닉네임은 바람의나라 닉네임 우선 (구 데이터는 메월 닉네임 폴백)
+      listing.requesterNickname =
+        selected.requesterBaramNickname ?? selected.requesterNickname;
       listing.requesterDiscordId = selected.requesterDiscordId;
       listing.requesterEmail = selected.requesterEmail;
       listing.requestedAt = selected.requestedAt;
-    } else {
-      // 게시 취소는 주간 취소 패널티 대상이다.
-      await this.recordCancellation(member.accountId, listing, 'owner');
     }
 
     listing.status = status as TradeStatus;
@@ -839,7 +1244,7 @@ export class TradeService {
 
   /**
    * 거래 요청 철회/거절.
-   * - 요청자 본인: 자신의 요청을 취소한다 (주간 취소 패널티 대상).
+   * - 요청자 본인: 자신의 요청을 취소한다.
    * - 게시자: requesterAccountId로 특정 요청을 거절한다.
    * 남은 요청이 없으면 게시글은 다시 거래 가능(open) 상태가 된다.
    */
@@ -897,11 +1302,6 @@ export class TradeService {
     }
 
     await listing.save();
-
-    // 요청자 본인의 취소만 주간 취소 패널티 대상이다 (게시자의 거절은 제외).
-    if (!isOwner) {
-      await this.recordCancellation(member.accountId, listing, 'requester');
-    }
 
     return this.serializeListing(listing, { member });
   }
@@ -961,7 +1361,13 @@ export class TradeService {
     id: string,
     member: Member,
     thread?: string,
-  ): Promise<{ thread: string; messages: SerializedTradeMessage[] }> {
+  ): Promise<{
+    thread: string;
+    messages: SerializedTradeMessage[];
+    // 상대가 지금 같은 대화방을 보고 있는지(최근 조회/폴링 기준)
+    opponentViewing: boolean;
+    opponentLastSeenAt?: string;
+  }> {
     const listing = await this.findListingById(id);
     const threadAccountId = this.resolveMessageThread(listing, member, thread);
 
@@ -973,8 +1379,28 @@ export class TradeService {
 
     await this.markThreadRead(listing, threadAccountId, member.accountId);
 
+    // 상대의 마지막 조회 시각으로 대화 참여(보고 있음) 여부를 판단한다.
+    // 호출자가 게시자면 상대는 요청자, 요청자면 상대는 게시자다.
+    const isOwner = listing.ownerAccountId === member.accountId;
+    const threadDoc = await this.tradeThreadModel
+      .findOne({ listingId: listing._id, threadAccountId })
+      .select({ ownerLastReadAt: 1, requesterLastReadAt: 1 })
+      .lean()
+      .exec();
+    const opponentLastReadAt = isOwner
+      ? threadDoc?.requesterLastReadAt
+      : threadDoc?.ownerLastReadAt;
+    const opponentViewing =
+      opponentLastReadAt != null &&
+      Date.now() - new Date(opponentLastReadAt).getTime() <=
+        THREAD_PRESENCE_WINDOW_MS;
+
     return {
       thread: threadAccountId,
+      opponentViewing,
+      opponentLastSeenAt: opponentLastReadAt
+        ? new Date(opponentLastReadAt).toISOString()
+        : undefined,
       messages: messages.map((message) => ({
         id: String(message._id),
         threadAccountId: message.threadAccountId,
@@ -997,7 +1423,14 @@ export class TradeService {
     const trimmed = content.trim();
 
     if (!trimmed) {
-      throw new BadRequestException('메모 내용을 입력하세요.');
+      throw new BadRequestException('메시지를 입력하세요.');
+    }
+
+    // 종료된 거래에서는 대화를 닫는다. (기록 조회는 계속 가능)
+    if (listing.status === 'completed' || listing.status === 'canceled') {
+      throw new BadRequestException(
+        '종료된 거래에서는 대화를 보낼 수 없습니다.',
+      );
     }
 
     return this.appendThreadMessage(listing, member, trimmed, { thread });
@@ -1227,7 +1660,10 @@ export class TradeService {
         const participants = new Map<string, string>();
 
         for (const entry of this.getPendingRequests(listing)) {
-          participants.set(entry.requesterAccountId, entry.requesterNickname);
+          participants.set(
+            entry.requesterAccountId,
+            entry.requesterBaramNickname ?? entry.requesterNickname,
+          );
         }
 
         if (
@@ -1259,7 +1695,7 @@ export class TradeService {
           summaries.push(
             this.toThreadSummary(
               member.accountId,
-              listing.ownerNickname,
+              listing.ownerBaramNickname ?? listing.ownerNickname,
               doc,
               false,
             ),
@@ -1332,7 +1768,11 @@ export class TradeService {
 
     if (search) {
       const regex = new RegExp(escapeRegExp(search), 'i');
-      filter.$or = [{ itemName: regex }, { ownerNickname: regex }];
+      filter.$or = [
+        { itemName: regex },
+        { ownerNickname: regex },
+        { ownerBaramNickname: regex },
+      ];
     }
 
     return filter;
@@ -1427,10 +1867,14 @@ export class TradeService {
     return [];
   }
 
-  // 닉네임 노출은 인증된 메월 닉네임을 우선한다.
+  // 거래소 노출 닉네임은 바람의나라 닉네임을 우선한다.
+  // (거래 자격 가드로 baramNickname이 사실상 항상 존재한다)
   private resolveDisplayNickname(member: Member): string {
     return (
-      member.maplestoryWorldProfileName ?? member.nickname ?? member.accountId
+      member.baramNickname ??
+      member.maplestoryWorldProfileName ??
+      member.nickname ??
+      member.accountId
     );
   }
 
@@ -1449,53 +1893,6 @@ export class TradeService {
         '거래소 이용을 위해 내 정보에서 바람의나라 닉네임을 먼저 등록하세요.',
       );
     }
-  }
-
-  // 주간 취소 패널티: 최근 7일 취소가 3건 이상이면 3번째 취소로부터 7일간 거래 불가
-  private async assertNotTradeBanned(accountId: string): Promise<void> {
-    const windowStart = new Date(Date.now() - CANCEL_WINDOW_MS);
-    const cancellations = await this.tradeCancellationModel
-      .find({ accountId, canceledAt: { $gte: windowStart } })
-      .sort({ canceledAt: -1 })
-      .limit(CANCEL_LIMIT_PER_WINDOW)
-      .select({ canceledAt: 1 })
-      .lean()
-      .exec();
-
-    if (cancellations.length < CANCEL_LIMIT_PER_WINDOW) {
-      return;
-    }
-
-    const thirdLatest = cancellations[CANCEL_LIMIT_PER_WINDOW - 1];
-    const bannedUntil = new Date(
-      thirdLatest.canceledAt.getTime() + CANCEL_WINDOW_MS,
-    );
-
-    if (bannedUntil.getTime() > Date.now()) {
-      const formatted = new Intl.DateTimeFormat('ko-KR', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(bannedUntil);
-
-      throw new BadRequestException(
-        `일주일 동안 거래 취소가 ${CANCEL_LIMIT_PER_WINDOW}건 이상 발생해 거래가 제한되었습니다. ${formatted} 이후에 다시 이용할 수 있습니다.`,
-      );
-    }
-  }
-
-  private async recordCancellation(
-    accountId: string,
-    listing: TradeListing,
-    role: 'owner' | 'requester',
-  ): Promise<void> {
-    await this.tradeCancellationModel.create({
-      accountId,
-      listingId: listing._id,
-      role,
-      canceledAt: new Date(),
-    });
   }
 
   private async findListingById(id: string): Promise<TradeListing> {
@@ -1695,6 +2092,8 @@ export class TradeService {
       quantity: listing.quantity,
       memo: listing.memo,
       ownerNickname: listing.ownerNickname,
+      ownerAccountId:
+        isMine || isRequester ? listing.ownerAccountId : undefined,
       ownerMaplestoryWorldId: listing.ownerMaplestoryWorldId,
       ownerBaramNickname: listing.ownerBaramNickname,
       ownerPresence: this.resolveOwnerPresence(listing, lastActiveByAccountId),

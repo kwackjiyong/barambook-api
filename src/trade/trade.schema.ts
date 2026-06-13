@@ -159,28 +159,6 @@ TradeListingSchema.index({ ownerAccountId: 1, status: 1 });
 TradeListingSchema.index({ requesterAccountId: 1, status: 1 });
 TradeListingSchema.index({ 'requests.requesterAccountId': 1, status: 1 });
 
-// 거래 취소 이력. 주간 취소 횟수 제한(패널티) 판정에 사용한다.
-@Schema({ collection: 'trade_cancellations' })
-export class TradeCancellation extends Document {
-  @Prop({ required: true, index: true })
-  accountId: string;
-
-  @Prop({ type: Types.ObjectId, required: true })
-  listingId: Types.ObjectId;
-
-  // owner: 게시 취소, requester: 보낸 요청 취소
-  @Prop({ type: String, enum: ['owner', 'requester'], required: true })
-  role: 'owner' | 'requester';
-
-  @Prop({ required: true })
-  canceledAt: Date;
-}
-
-export const TradeCancellationSchema =
-  SchemaFactory.createForClass(TradeCancellation);
-
-TradeCancellationSchema.index({ accountId: 1, canceledAt: -1 });
-
 // 거래 게시글의 게시자-요청자 간 메모 대화. threadAccountId(요청자)별로 묶인다.
 @Schema({ collection: 'trade_messages' })
 export class TradeMessage extends Document {

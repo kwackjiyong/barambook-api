@@ -20,6 +20,7 @@ import { MemberService, SsoProfile } from '../member/member.service';
 import { UpdateBaramNicknameDto } from './dto/update-baram-nickname.dto';
 import { UpdateMaplestoryWorldIdDto } from './dto/update-maplestory-world-id.dto';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
+import { UpdateRenderCharacterDto } from './dto/update-render-character.dto';
 import { SaveNextGuard } from './save-next.guard';
 
 type AuthenticatedRequest = Request & {
@@ -153,6 +154,30 @@ export class AuthController {
     return this.serializeMember(member);
   }
 
+  // 의상실 대표 캐릭터 저장 (대화 패널 캐릭터 연출에 사용)
+  @Patch('/render-character')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  async updateRenderCharacter(
+    @Req() req: AuthenticatedRequest,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    dto: UpdateRenderCharacterDto,
+  ) {
+    const member = await this.memberService.updateRenderCharacter(
+      req.member as Member,
+      dto.request,
+      dto.input,
+    );
+
+    return this.serializeMember(member);
+  }
+
   // 메월 소유 검증 1단계: 서버가 배경 변경 챌린지를 발급한다.
   @Post('/maplestory-world-verification')
   @HttpCode(HttpStatus.OK)
@@ -235,6 +260,13 @@ export class AuthController {
       maplestoryWorldVerifiedAt:
         member.maplestoryWorldVerifiedAt?.toISOString(),
       baramNickname: member.baramNickname,
+      // 대표 캐릭터 존재 여부 + 재편집용 입력값 (이미지 캐시 버전은 updatedAt)
+      hasRenderCharacter: member.renderCharacter != null,
+      renderCharacterInput: member.renderCharacter?.input,
+      renderCharacterUpdatedAt:
+        member.renderCharacter?.updatedAt != null
+          ? new Date(member.renderCharacter.updatedAt).toISOString()
+          : undefined,
       isOperator: member.isOperator === true,
       authenticated: true,
     };

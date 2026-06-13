@@ -2,7 +2,7 @@ import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateTradeMessageDto {
   @IsString()
-  @IsNotEmpty({ message: '메모 내용을 입력하세요.' })
+  @IsNotEmpty({ message: '메시지를 입력하세요.' })
   @MaxLength(500)
   content: string;
 

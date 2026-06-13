@@ -12,7 +12,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { Observable } from 'rxjs';
+import { interval, map, merge, Observable } from 'rxjs';
 import { MemberSessionGuard } from '../member/member-session.guard';
 import { Member } from '../member/member.schema';
 import {
@@ -24,6 +24,9 @@ import { NotificationService } from './notification.service';
 type AuthenticatedRequest = Request & {
   member?: Member;
 };
+
+// SSE 연결 유지를 위한 하트비트 주기 (프록시 idle 타임아웃보다 짧게)
+const HEARTBEAT_INTERVAL_MS = 25 * 1000;
 
 @Controller('notification')
 export class NotificationController {
@@ -93,6 +96,15 @@ export class NotificationController {
 
     req.on('close', close);
 
-    return stream.asObservable() as unknown as Observable<MessageEvent>;
+    // 25초마다 하트비트(type: 'ping')를 흘려 프록시의 idle 타임아웃으로
+    // 연결이 끊기는 것을 막는다. FE 리스너는 알 수 없는 type을 무시한다.
+    const heartbeat$ = interval(HEARTBEAT_INTERVAL_MS).pipe(
+      map(() => ({ data: { type: 'ping' } })),
+    );
+
+    return merge(
+      stream.asObservable(),
+      heartbeat$,
+    ) as unknown as Observable<MessageEvent>;
   }
 }

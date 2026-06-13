@@ -18,7 +18,10 @@ import { MemberSessionGuard } from '../member/member-session.guard';
 import { Member } from '../member/member.schema';
 import { MemberService } from '../member/member.service';
 import { CreateTradeListingDto } from './dto/create-trade-listing.dto';
+import { QueryMarketOverviewDto } from './dto/query-market-overview.dto';
+import { QueryTradeItemMarketDto } from './dto/query-trade-item-market.dto';
 import { QueryTradeListingsDto } from './dto/query-trade-listings.dto';
+import { QueryTradePriceHistoryDto } from './dto/query-trade-price-history.dto';
 import { QueryTradePriceSummaryDto } from './dto/query-trade-price-summary.dto';
 import { QueryTradeStatsDto } from './dto/query-trade-stats.dto';
 import { RequestTradeDto } from './dto/request-trade.dto';
@@ -92,6 +95,51 @@ export class TradeController {
     query: QueryTradePriceSummaryDto,
   ) {
     return this.tradeService.getItemPriceSummaries(query.limit);
+  }
+
+  // 아이템 시세 패널: 현재 등록 매물(호가) vs 거래완료(체결가) 분리 노출
+  @Get('item-market')
+  getItemMarket(
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryTradeItemMarketDto,
+  ) {
+    return this.tradeService.getItemMarket(query);
+  }
+
+  // 시세보기 탭(주식형): 인기 종목별 평균 호가/평균 체결가/변동률/스파크라인
+  @Get('market-overview')
+  getMarketOverview(
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryMarketOverviewDto,
+  ) {
+    return this.tradeService.getMarketOverview(query.limit);
+  }
+
+  // 거래 상세 꺾은선 그래프: 같은 옵션 기준 체결가 추이
+  @Get('price-history')
+  getPriceHistory(
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryTradePriceHistoryDto,
+  ) {
+    return this.tradeService.getPriceHistory(query);
   }
 
   // 내 거래 페이지: 내가 게시한 글 + 내가 보낸 요청

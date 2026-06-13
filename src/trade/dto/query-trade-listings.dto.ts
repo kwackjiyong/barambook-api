@@ -74,4 +74,9 @@ export class QueryTradeListingsDto {
   @IsString()
   @MaxLength(80)
   search?: string;
+
+  // 목록 정렬 기준. recent(기본: 활동중·최신순) / price(가격순)
+  @IsOptional()
+  @IsIn(['recent', 'price'])
+  sort?: 'recent' | 'price';
 }
