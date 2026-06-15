@@ -1,7 +1,7 @@
 import { sanitizeMverseProfileCode } from './mverse-profile';
 
 const MVERSE_API_ORIGIN = 'https://mverse-api.nexon.com';
-const PROFILE_CODE_PATTERN = /^[A-Za-z0-9]{5}$/;
+const PROFILE_CODE_PATTERN = /^[A-Za-z0-9]{5,6}$/;
 const ONLINE_CACHE_TTL_MS = 60 * 1000;
 // 한 번의 목록 조회에서 외부 API를 호출할 최대 태그 수
 const ONLINE_RESOLVE_LIMIT = 25;

@@ -4,7 +4,7 @@ import { Document, Types } from 'mongoose';
 export type TradeType = 'sell' | 'buy';
 export type TradeStatus = 'open' | 'requested' | 'completed' | 'canceled';
 
-// 게임 아이템 타입 코드 (w:무기 a:갑옷 h:투구 r:반지 s:방패 p:보조, t/c/e:기타류)
+// 게임 아이템 타입 코드 (w:무기 a:갑옷 h:투구 r:반지 s:방패 p:보조 c:코스튬, t/e:기타류)
 export const TRADE_ITEM_TYPES = [
   'w',
   'a',
@@ -18,10 +18,12 @@ export const TRADE_ITEM_TYPES = [
 ] as const;
 export type TradeItemType = (typeof TRADE_ITEM_TYPES)[number];
 
-// 내구도 입력 대상 장비 타입
+// 내구도 입력 대상 장비 타입 (코스튬 'c'는 내구도가 없어 제외)
 export const EQUIP_ITEM_TYPES: TradeItemType[] = ['w', 'a', 'h', 'r', 's', 'p'];
-// 염색약/형상변환 적용 대상 타입
-export const DYEABLE_ITEM_TYPES: TradeItemType[] = ['w', 'a'];
+// 염색약 적용 대상 타입. 코스튬은 갑옷과 동일하게 의상염색약을 적용할 수 있다.
+export const DYEABLE_ITEM_TYPES: TradeItemType[] = ['w', 'a', 'c'];
+// 형상변환 적용 대상 타입. 코스튬은 갑옷과 달리 형상변환이 불가능하다.
+export const TRANSFORMABLE_ITEM_TYPES: TradeItemType[] = ['w', 'a'];
 
 // 거래 요청자 정보 스냅샷. 게시글 하나에 여러 요청이 쌓일 수 있고
 // 게시자가 완료 처리 시 이 중 1명을 거래 상대로 선택한다.
@@ -131,6 +133,13 @@ export class TradeListing extends Document {
 
   @Prop()
   requesterNickname?: string;
+
+  // 거래 당사자에게만 공개하는 선택된 상대의 메월 태그/바람 닉네임 (완료 시 승격)
+  @Prop()
+  requesterMaplestoryWorldId?: string;
+
+  @Prop()
+  requesterBaramNickname?: string;
 
   @Prop()
   requesterDiscordId?: string;

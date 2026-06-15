@@ -1,5 +1,5 @@
 const MVERSE_API_ORIGIN = 'https://mverse-api.nexon.com';
-const PROFILE_CODE_PATTERN = /^[A-Za-z0-9]{5}$/;
+const PROFILE_CODE_PATTERN = /^[A-Za-z0-9]{5,6}$/;
 
 // 메이플스토리월드 기본 프로필 배경 6종 (backgroundId 1~6 고정 카탈로그)
 export interface MverseBackground {
@@ -106,7 +106,7 @@ export const sanitizeMverseProfileCode = (value: string) =>
     .trim()
     .replace(/^#/, '')
     .replace(/[^A-Za-z0-9]/g, '')
-    .slice(0, 5);
+    .slice(0, 6);
 
 export const normalizeMverseProfileName = (value: string) => value.trim();
 

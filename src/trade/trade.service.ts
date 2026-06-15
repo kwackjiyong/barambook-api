@@ -18,6 +18,7 @@ import { TradeResolveStatusDto } from './dto/update-trade-status.dto';
 import {
   DYEABLE_ITEM_TYPES,
   EQUIP_ITEM_TYPES,
+  TRANSFORMABLE_ITEM_TYPES,
   TradeItemType,
   TradeListing,
   TradeMessage,
@@ -80,6 +81,8 @@ export interface SerializedTradeListing {
   // 참여자에게만 내려가는 메모 대화방 요약 (안읽음 배지/딥링크용)
   threads?: SerializedTradeThread[];
   requesterNickname?: string;
+  // 선택된 거래 상대의 메월 태그(공개) — FE에서 닉네임#태그로 노출
+  requesterMaplestoryWorldId?: string;
   ownerDiscordId?: string;
   ownerEmail?: string;
   requesterDiscordId?: string;
@@ -235,6 +238,8 @@ interface CatalogItem {
   id: number;
   name: string;
   type: string;
+  // 코스튬이 덮는 장비 슬롯(w:무기 a:갑옷). 염색약 종류를 가른다.
+  baseType?: string;
 }
 
 interface MarketStats {
@@ -327,6 +332,7 @@ export class TradeService {
     loadedAt: number;
     equip: CatalogItem[];
     etc: CatalogItem[];
+    costume: CatalogItem[];
   } | null = null;
 
   constructor(
@@ -543,13 +549,22 @@ export class TradeService {
       threadsByListingId,
     };
 
+    // 바람의나라 닉네임은 거래 당사자(게시자/요청자)에게만 공개한다.
+    const isParticipant =
+      member != null &&
+      (listing.ownerAccountId === member.accountId ||
+        this.getPendingRequests(listing).some(
+          (entry) => entry.requesterAccountId === member.accountId,
+        ) ||
+        listing.requesterAccountId === member.accountId);
+
     return {
       listing: this.serializeListing(listing, context),
       owner: {
         nickname: listing.ownerNickname,
         joinedAt: owner?.createdAt?.toISOString(),
         maplestoryWorldId: listing.ownerMaplestoryWorldId,
-        baramNickname: listing.ownerBaramNickname,
+        baramNickname: isParticipant ? listing.ownerBaramNickname : undefined,
       },
       ownerListings: ownerListings.map((entry) =>
         this.serializeListing(entry, context),
@@ -974,8 +989,8 @@ export class TradeService {
       dyeName: listing.dyeName,
       transformItemId: listing.transformItemId,
       transformItemName: listing.transformItemName,
-      // 거래소 노출 닉네임은 바람의나라 닉네임을 우선한다.
-      ownerNickname: listing.ownerBaramNickname ?? listing.ownerNickname,
+      // 시세 패널은 공개 신원(메월 닉네임)만 노출한다.
+      ownerNickname: listing.ownerNickname,
       createdAt: listing.createdAt.toISOString(),
       closedAt: listing.closedAt?.toISOString(),
     };
@@ -1026,12 +1041,24 @@ export class TradeService {
     );
     const isEquip = EQUIP_ITEM_TYPES.includes(itemType);
     const isDyeable = DYEABLE_ITEM_TYPES.includes(itemType);
+    const isTransformable = TRANSFORMABLE_ITEM_TYPES.includes(itemType);
+
+    // 무기는 무기염색약, 갑옷은 의상염색약을 쓴다. 코스튬은 덮는 장비
+    // 슬롯(baseType)에 따라 무기/의상 염색약이 갈린다.
+    let usesWeaponDye = itemType === 'w';
+
+    if (itemType === 'c') {
+      const costumeItem = (await this.loadItemCatalog()).costume.find(
+        (entry) => entry.id === dto.itemId || entry.name === itemName,
+      );
+      usesWeaponDye = costumeItem?.baseType === 'w';
+    }
 
     let dye: TradeDyeOption | undefined;
 
     if (isDyeable && dto.dyeItemId != null) {
       const options = await this.getDyeOptions();
-      const pool = itemType === 'w' ? options.weaponDyes : options.armorDyes;
+      const pool = usesWeaponDye ? options.weaponDyes : options.armorDyes;
       dye = pool.find((entry) => entry.itemId === dto.dyeItemId);
 
       if (!dye) {
@@ -1043,7 +1070,7 @@ export class TradeService {
 
     let transformItem: CatalogItem | undefined;
 
-    if (isDyeable && dto.transformItemId != null) {
+    if (isTransformable && dto.transformItemId != null) {
       const catalog = await this.loadItemCatalog();
       transformItem = catalog.equip.find(
         (entry) => entry.id === dto.transformItemId && entry.type === itemType,
@@ -1071,8 +1098,8 @@ export class TradeService {
       transformItemName: transformItem?.name,
       memo: dto.memo?.trim(),
       ownerAccountId: member.accountId,
-      // 닉네임은 인증된 메월 닉네임으로 노출한다.
-      ownerNickname: this.resolveDisplayNickname(member),
+      // 공개 노출 닉네임은 메월 프로필명(+태그). 바람 닉네임은 따로 저장해 둔다.
+      ownerNickname: this.resolvePublicNickname(member),
       ownerDiscordId: member.discordId,
       ownerEmail: member.email,
       ownerMaplestoryWorldId: member.maplestoryWorldId,
@@ -1133,7 +1160,8 @@ export class TradeService {
 
     const entry: TradeRequestEntry = {
       requesterAccountId: member.accountId,
-      requesterNickname: this.resolveDisplayNickname(member),
+      // 공개 노출 닉네임은 메월 프로필명(+태그). 바람 닉네임은 따로 보관한다.
+      requesterNickname: this.resolvePublicNickname(member),
       requesterDiscordId: member.discordId,
       requesterEmail: member.email,
       requesterMaplestoryWorldId: member.maplestoryWorldId,
@@ -1165,7 +1193,9 @@ export class TradeService {
         listingId: String(listing._id),
         itemName: listing.itemName,
         price: listing.price,
-        requesterNickname: entry.requesterNickname,
+        // 게시자 알림은 거래 당사자가 알아볼 바람의나라 닉네임으로 표기한다.
+        requesterNickname:
+          entry.requesterBaramNickname ?? entry.requesterNickname,
         messagePreview: firstMessage
           ? this.buildPreview(firstMessage)
           : undefined,
@@ -1226,9 +1256,10 @@ export class TradeService {
       }
 
       listing.requesterAccountId = selected.requesterAccountId;
-      // 노출 닉네임은 바람의나라 닉네임 우선 (구 데이터는 메월 닉네임 폴백)
-      listing.requesterNickname =
-        selected.requesterBaramNickname ?? selected.requesterNickname;
+      // 공개 노출은 메월 닉네임(+태그), 바람 닉네임은 당사자에게만 따로 승격한다.
+      listing.requesterNickname = selected.requesterNickname;
+      listing.requesterMaplestoryWorldId = selected.requesterMaplestoryWorldId;
+      listing.requesterBaramNickname = selected.requesterBaramNickname;
       listing.requesterDiscordId = selected.requesterDiscordId;
       listing.requesterEmail = selected.requesterEmail;
       listing.requestedAt = selected.requestedAt;
@@ -1292,6 +1323,8 @@ export class TradeService {
     if (listing.requesterAccountId === targetAccountId) {
       listing.requesterAccountId = undefined;
       listing.requesterNickname = undefined;
+      listing.requesterMaplestoryWorldId = undefined;
+      listing.requesterBaramNickname = undefined;
       listing.requesterDiscordId = undefined;
       listing.requesterEmail = undefined;
     }
@@ -1522,7 +1555,8 @@ export class TradeService {
       options?.thread,
     );
     const now = new Date();
-    const authorNickname = this.resolveDisplayNickname(author);
+    // 대화 본문에는 거래 당사자가 게임에서 알아볼 바람의나라 닉네임을 쓴다.
+    const authorNickname = this.resolveConversationNickname(author);
 
     const message = new this.tradeMessageModel({
       listingId: listing._id,
@@ -1670,9 +1704,10 @@ export class TradeService {
           listing.requesterAccountId != null &&
           listing.requesterNickname != null
         ) {
+          // 대화 탭 라벨은 바람의나라 닉네임으로 노출한다(당사자 맥락).
           participants.set(
             listing.requesterAccountId,
-            listing.requesterNickname,
+            listing.requesterBaramNickname ?? listing.requesterNickname,
           );
         }
 
@@ -1746,8 +1781,8 @@ export class TradeService {
     }
 
     if (query.itemType === 'etc') {
-      // 장비 외 전부. 타입 도입 이전(미저장) 게시글도 기타로 취급한다.
-      filter.itemType = { $nin: EQUIP_ITEM_TYPES };
+      // 장비·코스튬 외 전부. 타입 도입 이전(미저장) 게시글도 기타로 취급한다.
+      filter.itemType = { $nin: [...EQUIP_ITEM_TYPES, 'c'] };
     } else if (query.itemType) {
       filter.itemType = query.itemType;
     }
@@ -1767,12 +1802,9 @@ export class TradeService {
     const search = query.search?.trim();
 
     if (search) {
+      // 바람의나라 닉네임은 비공개이므로 검색 대상에서 제외한다.
       const regex = new RegExp(escapeRegExp(search), 'i');
-      filter.$or = [
-        { itemName: regex },
-        { ownerNickname: regex },
-        { ownerBaramNickname: regex },
-      ];
+      filter.$or = [{ itemName: regex }, { ownerNickname: regex }];
     }
 
     return filter;
@@ -1786,10 +1818,14 @@ export class TradeService {
     fallback: TradeItemType,
   ): Promise<TradeItemType> {
     const catalog = await this.loadItemCatalog();
+    // 코스튬은 과거 etc(type 't')에 중복 적재돼 있을 수 있으므로 etc보다 먼저
+    // 조회해, 같은 이름/ID라도 코스튬(type 'c')으로 해석되게 한다.
     const matched =
       catalog.equip.find((entry) => entry.name === itemName) ??
+      catalog.costume.find((entry) => entry.name === itemName) ??
       catalog.etc.find((entry) => entry.name === itemName) ??
       catalog.equip.find((entry) => entry.id === itemId) ??
+      catalog.costume.find((entry) => entry.id === itemId) ??
       catalog.etc.find((entry) => entry.id === itemId);
 
     return (matched?.type as TradeItemType | undefined) ?? fallback;
@@ -1798,6 +1834,7 @@ export class TradeService {
   private async loadItemCatalog(): Promise<{
     equip: CatalogItem[];
     etc: CatalogItem[];
+    costume: CatalogItem[];
   }> {
     const now = Date.now();
 
@@ -1820,6 +1857,12 @@ export class TradeService {
         id: entry.id,
         name: entry.name,
         type: entry.type,
+      })),
+      costume: (itemDoc?.costume ?? []).map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        type: entry.type,
+        baseType: entry.baseType,
       })),
     };
 
@@ -1857,8 +1900,8 @@ export class TradeService {
           requesterNickname: listing.requesterNickname,
           requesterDiscordId: listing.requesterDiscordId,
           requesterEmail: listing.requesterEmail,
-          requesterMaplestoryWorldId: undefined,
-          requesterBaramNickname: undefined,
+          requesterMaplestoryWorldId: listing.requesterMaplestoryWorldId,
+          requesterBaramNickname: listing.requesterBaramNickname,
           requestedAt: listing.requestedAt ?? listing.createdAt,
         },
       ];
@@ -1867,9 +1910,18 @@ export class TradeService {
     return [];
   }
 
-  // 거래소 노출 닉네임은 바람의나라 닉네임을 우선한다.
-  // (거래 자격 가드로 baramNickname이 사실상 항상 존재한다)
-  private resolveDisplayNickname(member: Member): string {
+  // 거래소 공개 신원에 쓰는 닉네임. 메이플스토리월드 프로필명을 우선한다.
+  // FE에서 maplestoryWorldId(태그)와 합쳐 "닉네임#태그"로 노출하며,
+  // 바람의나라 닉네임은 거래 당사자(요청 이후)에게만 따로 공개한다.
+  private resolvePublicNickname(member: Member): string {
+    return (
+      member.maplestoryWorldProfileName ?? member.nickname ?? member.accountId
+    );
+  }
+
+  // 메모 대화에 쓰는 닉네임. 거래 당사자끼리는 게임에서 만나야 하므로
+  // 바람의나라 닉네임을 우선한다. (대화는 참여자에게만 노출되는 맥락)
+  private resolveConversationNickname(member: Member): string {
     return (
       member.baramNickname ??
       member.maplestoryWorldProfileName ??
@@ -2095,7 +2147,9 @@ export class TradeService {
       ownerAccountId:
         isMine || isRequester ? listing.ownerAccountId : undefined,
       ownerMaplestoryWorldId: listing.ownerMaplestoryWorldId,
-      ownerBaramNickname: listing.ownerBaramNickname,
+      // 바람의나라 닉네임은 거래 당사자(요청 이후)에게만 공개한다.
+      ownerBaramNickname:
+        isMine || isRequester ? listing.ownerBaramNickname : undefined,
       ownerPresence: this.resolveOwnerPresence(listing, lastActiveByAccountId),
       ownerMverseOnline: listing.ownerMaplestoryWorldId
         ? mverseOnlineByTag?.get(listing.ownerMaplestoryWorldId)
@@ -2114,6 +2168,7 @@ export class TradeService {
         : undefined,
       threads: context.threadsByListingId?.get(String(listing._id)),
       requesterNickname: listing.requesterNickname,
+      requesterMaplestoryWorldId: listing.requesterMaplestoryWorldId,
       ownerDiscordId: canSeeOwnerContact ? listing.ownerDiscordId : undefined,
       ownerEmail: canSeeOwnerContact ? listing.ownerEmail : undefined,
       requesterDiscordId: canSeeRequesterContact
