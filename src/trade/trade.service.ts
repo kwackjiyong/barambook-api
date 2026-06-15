@@ -295,12 +295,24 @@ const MESSAGE_PREVIEW_LENGTH = 60;
 const OWNER_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 // 대화방을 마지막으로 조회(FE 5초 폴링)한 지 이 시간 이내면 '대화 참여중'으로 본다
 const THREAD_PRESENCE_WINDOW_MS = 15 * 1000;
+// 내 거래 페이지 정렬: 내가 처리해야 할 'requested'를 가장 위로 끌어올린다.
+// 거래소 홈에는 적용하지 않는다(아래 HOME_STATUS_GROUP 사용).
 const STATUS_SORT_ORDER: TradeStatus[] = [
   'requested',
   'open',
   'completed',
   'canceled',
 ];
+
+// 거래소 홈 정렬: open과 requested를 같은 "거래 가능" 그룹으로 묶고,
+// 종료 상태(completed/canceled)만 뒤로 보낸다. 대화 요청이 들어왔다고
+// 게시글을 상단으로 끌어올리지 않는다 — 그 규칙은 내 거래 페이지에서만 쓴다.
+const HOME_STATUS_GROUP: Record<TradeStatus, number> = {
+  open: 0,
+  requested: 0,
+  completed: 1,
+  canceled: 1,
+};
 const ITEM_CATALOG_TTL_MS = 10 * 60 * 1000;
 
 const escapeRegExp = (value: string) =>
@@ -371,12 +383,12 @@ export class TradeService {
     const priceDirection = query.type === 'buy' ? -1 : 1;
     const sortStage: Record<string, 1 | -1> = sortByPrice
       ? {
-          statusOrder: 1,
+          statusGroup: 1,
           hasNumericPrice: -1,
           numericPrice: priceDirection,
           createdAt: -1,
         }
-      : { statusOrder: 1, createdAt: -1 };
+      : { statusGroup: 1, createdAt: -1 };
 
     const [result] = await this.tradeListingModel
       .aggregate<{
@@ -387,7 +399,10 @@ export class TradeService {
         { $match: filter },
         {
           $addFields: {
-            statusOrder: { $indexOfArray: [STATUS_SORT_ORDER, '$status'] },
+            // open·requested(0) → completed·canceled(1) 두 그룹만 둔다.
+            statusGroup: {
+              $cond: [{ $in: ['$status', ['completed', 'canceled']] }, 1, 0],
+            },
             // 숫자(콤마 허용) 가격. '가격 협의' 등은 null이 되어 가격순에서 뒤로 밀린다.
             numericPrice: {
               $convert: {
@@ -465,7 +480,7 @@ export class TradeService {
           .map((listing, index) => ({
             listing,
             index,
-            statusOrder: STATUS_SORT_ORDER.indexOf(listing.status),
+            statusGroup: HOME_STATUS_GROUP[listing.status],
             presenceRank: this.resolvePresenceRank(
               listing,
               lastActiveByAccountId,
@@ -473,8 +488,8 @@ export class TradeService {
             ),
           }))
           .sort((a, b) => {
-            if (a.statusOrder !== b.statusOrder) {
-              return a.statusOrder - b.statusOrder;
+            if (a.statusGroup !== b.statusGroup) {
+              return a.statusGroup - b.statusGroup;
             }
 
             if (a.presenceRank !== b.presenceRank) {
