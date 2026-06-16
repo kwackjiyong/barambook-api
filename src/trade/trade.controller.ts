@@ -156,6 +156,13 @@ export class TradeController {
     return this.tradeService.getUnreadSummary(req.member as Member);
   }
 
+  // 거래소 밖 노출용 진행 중 거래 요약. ':id'보다 먼저 선언해야 한다.
+  @Get('activity-summary')
+  @UseGuards(MemberSessionGuard)
+  getActivitySummary(@Req() req: TradeRequest) {
+    return this.tradeService.getActivitySummary(req.member as Member);
+  }
+
   @Get(':id')
   async findListingDetail(@Param('id') id: string, @Req() req: TradeRequest) {
     const member = await this.findOptionalMember(req);

@@ -262,6 +262,32 @@ export interface TradeUnreadSummary {
   threadCount: number;
 }
 
+// 거래소 밖(공통 내비/의상실/바카오톡 등)에 노출할 진행 중 거래 요약.
+// 목록 전체를 내리지 않고 배지/미리보기에 필요한 최소 정보만 담는다.
+export interface TradeActivityLatest {
+  listingId: string;
+  threadAccountId?: string;
+  itemName: string;
+  price: string;
+  role: 'owner' | 'requester';
+  eventType: 'request' | 'message' | 'status';
+  preview?: string;
+  occurredAt: string;
+  // 알림 클릭 딥링크 (앱에서 검증된 /trade/{id}?thread= 형식)
+  url: string;
+}
+
+export interface TradeActivitySummary {
+  // 종료되지 않은 참여 거래 수
+  activeCount: number;
+  // 안읽음 메모 합계 (unread-summary.total과 동일 의미)
+  unreadCount: number;
+  // 내가 게시자인 거래에 들어온 대기 중 요청 수
+  pendingRequestCount: number;
+  // 안읽음 메시지 > 새 요청 > 최근 진행 거래 순으로 고른 1건
+  latest: TradeActivityLatest | null;
+}
+
 const DEFAULT_PAGE_SIZE = 20;
 const OWNER_LISTING_LIMIT = 10;
 const PRICE_STATS_SAMPLE_LIMIT = 20;
@@ -1507,6 +1533,209 @@ export class TradeService {
     }
 
     return { total, threadCount: threads.length };
+  }
+
+  // 거래소 밖에 노출할 진행 중 거래 요약 (배지/미리보기용).
+  // 목록 전체 직렬화 없이 짧은 쿼리 몇 개로 구성한다.
+  async getActivitySummary(member: Member): Promise<TradeActivitySummary> {
+    const accountId = member.accountId;
+
+    // 1) 종료되지 않은(open/requested) 참여 거래
+    const activeListings = await this.tradeListingModel
+      .find({
+        status: { $nin: ['completed', 'canceled'] },
+        $or: [
+          { ownerAccountId: accountId },
+          { 'requests.requesterAccountId': accountId },
+          { requesterAccountId: accountId },
+        ],
+      })
+      .lean()
+      .exec();
+
+    const listingById = new Map<string, TradeListing>();
+    let pendingRequestCount = 0;
+
+    for (const listing of activeListings) {
+      listingById.set(String(listing._id), listing as unknown as TradeListing);
+
+      if (listing.ownerAccountId === accountId) {
+        pendingRequestCount += this.getPendingRequests(
+          listing as unknown as TradeListing,
+        ).length;
+      }
+    }
+
+    // 2) 안읽음 스레드 (게시자/요청자 양쪽)
+    const unreadThreads = await this.tradeThreadModel
+      .find({
+        $or: [
+          { ownerAccountId: accountId, ownerUnread: { $gt: 0 } },
+          { threadAccountId: accountId, requesterUnread: { $gt: 0 } },
+        ],
+      })
+      .lean()
+      .exec();
+
+    let unreadCount = 0;
+
+    for (const thread of unreadThreads) {
+      unreadCount +=
+        thread.ownerAccountId === accountId
+          ? (thread.ownerUnread ?? 0)
+          : (thread.requesterUnread ?? 0);
+    }
+
+    // 안읽음 스레드의 게시글이 진행 목록에 없으면(종료된 거래의 안읽음 등) 보강 조회
+    const missingListingIds = unreadThreads
+      .map((thread) => String(thread.listingId))
+      .filter((id) => !listingById.has(id));
+
+    if (missingListingIds.length > 0) {
+      const extras = await this.tradeListingModel
+        .find({ _id: { $in: missingListingIds } })
+        .lean()
+        .exec();
+
+      for (const listing of extras) {
+        listingById.set(String(listing._id), listing as unknown as TradeListing);
+      }
+    }
+
+    const latest = this.buildActivityLatest(
+      accountId,
+      activeListings as unknown as TradeListing[],
+      listingById,
+      unreadThreads,
+    );
+
+    return {
+      activeCount: activeListings.length,
+      unreadCount,
+      pendingRequestCount,
+      latest,
+    };
+  }
+
+  // 안읽음 메시지 > 새 요청 > 최근 진행 거래 순으로 미리보기 1건을 고른다.
+  private buildActivityLatest(
+    accountId: string,
+    activeListings: TradeListing[],
+    listingById: Map<string, TradeListing>,
+    unreadThreads: Array<{
+      listingId: Types.ObjectId;
+      ownerAccountId: string;
+      threadAccountId: string;
+      lastMessageAt?: Date;
+      lastMessagePreview?: string;
+    }>,
+  ): TradeActivityLatest | null {
+    // 1) 안읽음 메시지: 최신 메시지 스레드 1건
+    const newestUnread = [...unreadThreads]
+      .filter((thread) => listingById.has(String(thread.listingId)))
+      .sort(
+        (a, b) =>
+          (b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0) -
+          (a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0),
+      )[0];
+
+    if (newestUnread) {
+      const listing = listingById.get(String(newestUnread.listingId));
+
+      if (listing) {
+        const isOwnerView = listing.ownerAccountId === accountId;
+
+        return {
+          listingId: String(listing._id),
+          threadAccountId: isOwnerView
+            ? newestUnread.threadAccountId
+            : undefined,
+          itemName: listing.itemName,
+          price: listing.price,
+          role: isOwnerView ? 'owner' : 'requester',
+          eventType: 'message',
+          preview: newestUnread.lastMessagePreview,
+          occurredAt: (newestUnread.lastMessageAt
+            ? new Date(newestUnread.lastMessageAt)
+            : new Date()
+          ).toISOString(),
+          url: this.buildThreadUrl(
+            listing,
+            isOwnerView,
+            newestUnread.threadAccountId,
+          ),
+        };
+      }
+    }
+
+    // 2) 새 요청: 내가 게시자인 진행 거래의 가장 최근 대기 요청
+    let newestRequest: {
+      listing: TradeListing;
+      entry: TradeRequestEntry;
+    } | null = null;
+
+    for (const listing of activeListings) {
+      if (listing.ownerAccountId !== accountId) {
+        continue;
+      }
+
+      for (const entry of this.getPendingRequests(listing)) {
+        const at = new Date(entry.requestedAt ?? listing.createdAt).getTime();
+        const currentAt = newestRequest
+          ? new Date(
+              newestRequest.entry.requestedAt ?? newestRequest.listing.createdAt,
+            ).getTime()
+          : -1;
+
+        if (at > currentAt) {
+          newestRequest = { listing, entry };
+        }
+      }
+    }
+
+    if (newestRequest) {
+      const { listing, entry } = newestRequest;
+
+      return {
+        listingId: String(listing._id),
+        threadAccountId: entry.requesterAccountId,
+        itemName: listing.itemName,
+        price: listing.price,
+        role: 'owner',
+        eventType: 'request',
+        preview: `${entry.requesterBaramNickname ?? entry.requesterNickname}님의 거래 요청`,
+        occurredAt: new Date(
+          entry.requestedAt ?? listing.createdAt,
+        ).toISOString(),
+        url: this.buildThreadUrl(listing, true, entry.requesterAccountId),
+      };
+    }
+
+    // 3) 그 외: 가장 최근 진행 거래 1건
+    const newestActive = [...activeListings].sort(
+      (a, b) =>
+        new Date(b.requestedAt ?? b.createdAt).getTime() -
+        new Date(a.requestedAt ?? a.createdAt).getTime(),
+    )[0];
+
+    if (newestActive) {
+      const isOwnerView = newestActive.ownerAccountId === accountId;
+
+      return {
+        listingId: String(newestActive._id),
+        itemName: newestActive.itemName,
+        price: newestActive.price,
+        role: isOwnerView ? 'owner' : 'requester',
+        eventType: 'status',
+        occurredAt: new Date(
+          newestActive.requestedAt ?? newestActive.createdAt,
+        ).toISOString(),
+        // 특정 스레드가 없으므로 상세 페이지로 보낸다(요청자는 자기 스레드가 자동 노출).
+        url: `/trade/${String(newestActive._id)}`,
+      };
+    }
+
+    return null;
   }
 
   // 메모 본문 미리보기. 줄바꿈은 공백으로 펴고 길이를 제한한다.
