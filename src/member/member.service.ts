@@ -534,13 +534,35 @@ export class MemberService {
       );
     }
 
+    const verified = await this.refreshMverseVerification(member);
+
+    if (!verified) {
+      throw new BadRequestException(
+        '메이플스토리월드 닉네임이 변경되어 재인증이 필요합니다. 내 정보에서 다시 인증하세요.',
+      );
+    }
+  }
+
+  /**
+   * 메월 인증을 막지 않고(throw 없이) 현재 인증 상태만 돌려준다.
+   * 메월 인증은 거래소 선택사항이라 미인증이어도 거래를 진행하되,
+   * 인증된 계정은 주기적으로 프로필을 재조회해 닉네임이 바뀌었으면
+   * 인증을 해제(verifiedAt $unset)하고 false를 반환한다.
+   * @returns 현재 인증된 계정이면 true
+   */
+  async refreshMverseVerification(member: Member): Promise<boolean> {
+    if (
+      !member.maplestoryWorldId ||
+      !member.maplestoryWorldProfileName ||
+      !member.maplestoryWorldVerifiedAt
+    ) {
+      return false;
+    }
+
     const passedAt = this.mverseRecheckPassedAt.get(member.accountId);
 
-    if (
-      passedAt != null &&
-      Date.now() - passedAt < MVERSE_RECHECK_INTERVAL_MS
-    ) {
-      return;
+    if (passedAt != null && Date.now() - passedAt < MVERSE_RECHECK_INTERVAL_MS) {
+      return true;
     }
 
     let profile: Awaited<ReturnType<typeof fetchMverseProfileByCode>>;
@@ -548,13 +570,13 @@ export class MemberService {
     try {
       profile = await fetchMverseProfileByCode(member.maplestoryWorldId);
     } catch {
-      // 메월 API 장애가 거래를 막지 않도록 조회 실패는 통과시킨다.
-      return;
+      // 메월 API 장애 시 직전 인증 상태를 그대로 신뢰한다.
+      return true;
     }
 
     // 프로필 응답이 없는 경우도 일시 장애일 수 있어 통과시킨다.
     if (!profile) {
-      return;
+      return true;
     }
 
     if (
@@ -570,13 +592,14 @@ export class MemberService {
         )
         .exec();
       this.mverseRecheckPassedAt.delete(member.accountId);
+      member.maplestoryWorldVerifiedAt = undefined;
 
-      throw new BadRequestException(
-        '메이플스토리월드 닉네임이 변경되어 재인증이 필요합니다. 내 정보에서 다시 인증하세요.',
-      );
+      return false;
     }
 
     this.mverseRecheckPassedAt.set(member.accountId, Date.now());
+
+    return true;
   }
 
   private hashSessionToken(sessionToken: string): string {

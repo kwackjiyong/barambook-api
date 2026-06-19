@@ -47,6 +47,11 @@ export class TradeRequestEntry {
   @Prop()
   requesterBaramNickname?: string;
 
+  // 요청 시점의 메월 인증 여부 스냅샷. 메월 인증은 선택사항이라
+  // 미인증(false)인 채로도 요청할 수 있고, 완료 시 시세 표본 제외 판정에 쓴다.
+  @Prop()
+  requesterVerified?: boolean;
+
   @Prop({ required: true })
   requestedAt: Date;
 }
@@ -123,6 +128,12 @@ export class TradeListing extends Document {
   @Prop()
   ownerBaramNickname?: string;
 
+  // 게시 시점의 게시자 메월 인증 여부 스냅샷. 메월 인증은 선택사항이라
+  // 미인증(false)이면 매물에 '미인증' 배지를 노출하고, 완료 시 시세 표본에서
+  // 제외한다. 도입 이전(필수 인증 시절) 게시글은 필드가 없어 인증으로 취급한다.
+  @Prop()
+  ownerVerified?: boolean;
+
   // 진행 중인 거래 요청 목록 (요청 순서대로)
   @Prop({ type: [TradeRequestEntrySchema], default: [] })
   requests: TradeRequestEntry[];
@@ -140,6 +151,10 @@ export class TradeListing extends Document {
 
   @Prop()
   requesterBaramNickname?: string;
+
+  // 완료 시 선택된 거래 상대의 메월 인증 여부 스냅샷 (시세 표본 제외 판정용)
+  @Prop()
+  requesterVerified?: boolean;
 
   @Prop()
   requesterDiscordId?: string;

@@ -69,6 +69,8 @@ export interface SerializedTradeListing {
   quantity: number;
   memo?: string;
   ownerNickname: string;
+  // 게시자 메월 인증 여부(공개). false면 '미인증' 매물로 노출한다.
+  ownerVerified: boolean;
   // 참여자(게시자/요청자)에게만 내려감 — 대화 패널 캐릭터 조회용
   ownerAccountId?: string;
   ownerMaplestoryWorldId?: string;
@@ -146,6 +148,8 @@ export interface TradeItemMarketEntry {
   transformItemId?: number;
   transformItemName?: string;
   ownerNickname: string;
+  // 게시자 메월 인증 여부(공개). false면 '미인증' 매물로 노출한다.
+  ownerVerified: boolean;
   createdAt: string;
   closedAt?: string;
 }
@@ -290,6 +294,19 @@ export interface TradeActivitySummary {
 
 const DEFAULT_PAGE_SIZE = 20;
 const OWNER_LISTING_LIMIT = 10;
+// 시세 표본에서 제외할 미인증 거래 필터. 메월 인증은 선택사항이라
+// 당사자(게시자/선택된 요청자) 중 한쪽이라도 미인증(false)인 완료 거래는
+// 허위/조작 가능성이 있어 시세 집계에서 뺀다. 도입 이전 게시글은 필드가
+// 없어(=undefined) $ne:false에 걸려 인증 거래로 취급한다.
+const MARKET_VERIFIED_FILTER = {
+  ownerVerified: { $ne: false },
+  requesterVerified: { $ne: false },
+} as const;
+// 호가(현재 등록 매물) 표본에서 제외할 미인증 게시자 필터. 호가는 완료 상대가
+// 없으므로 게시자 인증만 본다. 미인증 게시자의 매물은 시세 호가에 넣지 않는다.
+const MARKET_OWNER_VERIFIED_FILTER = {
+  ownerVerified: { $ne: false },
+} as const;
 const PRICE_STATS_SAMPLE_LIMIT = 20;
 const PRICE_SUMMARY_DEFAULT_LIMIT = 8;
 const PRICE_SUMMARY_SCAN_LIMIT = 400;
@@ -634,6 +651,7 @@ export class TradeService {
         status: 'completed',
         dyeItemId: null,
         transformItemId: null,
+        ...MARKET_VERIFIED_FILTER,
       })
       .sort({ closedAt: -1 })
       .limit(PRICE_STATS_SAMPLE_LIMIT)
@@ -669,6 +687,7 @@ export class TradeService {
         status: 'completed',
         dyeItemId: null,
         transformItemId: null,
+        ...MARKET_VERIFIED_FILTER,
       })
       .sort({ closedAt: -1 })
       .limit(PRICE_SUMMARY_SCAN_LIMIT)
@@ -746,7 +765,12 @@ export class TradeService {
   ): Promise<TradeMarketOverviewItem[]> {
     // 최근 완료 거래를 스캔해 아이템별로 묶는다(가격이 자유 문자열이라 앱에서 집계).
     const completedDocs = await this.tradeListingModel
-      .find({ status: 'completed', dyeItemId: null, transformItemId: null })
+      .find({
+        status: 'completed',
+        dyeItemId: null,
+        transformItemId: null,
+        ...MARKET_VERIFIED_FILTER,
+      })
       .sort({ closedAt: -1 })
       .limit(PRICE_SUMMARY_SCAN_LIMIT)
       .select({
@@ -821,6 +845,7 @@ export class TradeService {
             status: { $in: ['open', 'requested'] as TradeStatus[] },
             dyeItemId: null,
             transformItemId: null,
+            ...MARKET_OWNER_VERIFIED_FILTER,
           },
         },
         {
@@ -897,6 +922,7 @@ export class TradeService {
         dyeItemId: query.dyeItemId ?? null,
         transformItemId: query.transformItemId ?? null,
         closedAt: { $gte: since },
+        ...MARKET_VERIFIED_FILTER,
       })
       .sort({ closedAt: 1 })
       .limit(PRICE_HISTORY_MAX_POINTS)
@@ -984,20 +1010,40 @@ export class TradeService {
       await Promise.all([
         // 표본이 작아(최대 MARKET_LIST_LIMIT건) 하이드레이트 비용이 미미하므로 lean을 쓰지 않는다.
         this.tradeListingModel
-          .find({ itemId, status: openStatus, ...optionFilter })
+          .find({
+            itemId,
+            status: openStatus,
+            ...optionFilter,
+            ...MARKET_OWNER_VERIFIED_FILTER,
+          })
           .sort({ createdAt: -1 })
           .limit(MARKET_LIST_LIMIT)
           .exec(),
         this.tradeListingModel
-          .find({ itemId, status: 'completed', ...optionFilter })
+          .find({
+            itemId,
+            status: 'completed',
+            ...optionFilter,
+            ...MARKET_VERIFIED_FILTER,
+          })
           .sort({ closedAt: -1 })
           .limit(MARKET_LIST_LIMIT)
           .exec(),
         this.tradeListingModel
-          .countDocuments({ itemId, status: openStatus, ...optionFilter })
+          .countDocuments({
+            itemId,
+            status: openStatus,
+            ...optionFilter,
+            ...MARKET_OWNER_VERIFIED_FILTER,
+          })
           .exec(),
         this.tradeListingModel
-          .countDocuments({ itemId, status: 'completed', ...optionFilter })
+          .countDocuments({
+            itemId,
+            status: 'completed',
+            ...optionFilter,
+            ...MARKET_VERIFIED_FILTER,
+          })
           .exec(),
       ]);
 
@@ -1032,6 +1078,7 @@ export class TradeService {
       transformItemName: listing.transformItemName,
       // 시세 패널은 공개 신원(메월 닉네임)만 노출한다.
       ownerNickname: listing.ownerNickname,
+      ownerVerified: listing.ownerVerified !== false,
       createdAt: listing.createdAt.toISOString(),
       closedAt: listing.closedAt?.toISOString(),
     };
@@ -1057,7 +1104,9 @@ export class TradeService {
     dto: CreateTradeListingDto,
   ): Promise<SerializedTradeListing> {
     this.assertHasContact(member);
-    await this.memberService.assertVerifiedMverseProfile(member);
+    // 메월 인증은 선택사항. 막지 않고 현재 인증 여부만 스냅샷으로 남긴다.
+    const ownerVerified =
+      await this.memberService.refreshMverseVerification(member);
     this.assertHasBaramNickname(member);
 
     // 거래 등록 게시물은 진행 중 기준 최대 5개로 제한한다.
@@ -1145,6 +1194,7 @@ export class TradeService {
       ownerEmail: member.email,
       ownerMaplestoryWorldId: member.maplestoryWorldId,
       ownerBaramNickname: member.baramNickname,
+      ownerVerified,
       requests: [],
     });
 
@@ -1158,7 +1208,9 @@ export class TradeService {
     member: Member,
     message?: string,
   ): Promise<SerializedTradeListing> {
-    await this.memberService.assertVerifiedMverseProfile(member);
+    // 메월 인증은 선택사항. 막지 않고 현재 인증 여부만 스냅샷으로 남긴다.
+    const requesterVerified =
+      await this.memberService.refreshMverseVerification(member);
     this.assertHasBaramNickname(member);
 
     const listing = await this.findListingById(id);
@@ -1207,6 +1259,7 @@ export class TradeService {
       requesterEmail: member.email,
       requesterMaplestoryWorldId: member.maplestoryWorldId,
       requesterBaramNickname: member.baramNickname,
+      requesterVerified,
       requestedAt: new Date(),
     };
 
@@ -1301,6 +1354,8 @@ export class TradeService {
       listing.requesterNickname = selected.requesterNickname;
       listing.requesterMaplestoryWorldId = selected.requesterMaplestoryWorldId;
       listing.requesterBaramNickname = selected.requesterBaramNickname;
+      // 시세 표본 제외 판정용: 선택된 상대의 메월 인증 여부를 함께 승격한다.
+      listing.requesterVerified = selected.requesterVerified;
       listing.requesterDiscordId = selected.requesterDiscordId;
       listing.requesterEmail = selected.requesterEmail;
       listing.requestedAt = selected.requestedAt;
@@ -1366,6 +1421,7 @@ export class TradeService {
       listing.requesterNickname = undefined;
       listing.requesterMaplestoryWorldId = undefined;
       listing.requesterBaramNickname = undefined;
+      listing.requesterVerified = undefined;
       listing.requesterDiscordId = undefined;
       listing.requesterEmail = undefined;
     }
@@ -2300,7 +2356,11 @@ export class TradeService {
     }
 
     const completed = await this.tradeListingModel
-      .find({ itemId: { $in: itemIds }, status: 'completed' })
+      .find({
+        itemId: { $in: itemIds },
+        status: 'completed',
+        ...MARKET_VERIFIED_FILTER,
+      })
       .sort({ closedAt: -1 })
       .limit(LISTING_SCAN_LIMIT)
       .select({ itemId: 1, dyeItemId: 1, transformItemId: 1, price: 1 })
@@ -2388,6 +2448,8 @@ export class TradeService {
       quantity: listing.quantity,
       memo: listing.memo,
       ownerNickname: listing.ownerNickname,
+      // 도입 이전(필드 없음) 게시글은 인증 거래로 취급한다.
+      ownerVerified: listing.ownerVerified !== false,
       ownerAccountId:
         isMine || isRequester ? listing.ownerAccountId : undefined,
       ownerMaplestoryWorldId: listing.ownerMaplestoryWorldId,
