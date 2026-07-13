@@ -42,6 +42,8 @@ export class ChannelGateway
 {
   private readonly logger = new Logger(ChannelGateway.name);
   private monsterLoopTimer: NodeJS.Timeout | null = null;
+  private presenceSweepTimer: NodeJS.Timeout | null = null;
+  private static readonly PRESENCE_SWEEP_INTERVAL_MS = 30 * 1000;
 
   @WebSocketServer()
   private server!: Namespace;
@@ -52,13 +54,17 @@ export class ChannelGateway
     private readonly channelWorldsService: ChannelWorldsService,
   ) {
     this.startMonsterLoop();
+    this.startPresenceSweepLoop();
   }
 
   async handleConnection(client: Socket): Promise<void> {
     const channelKey = normalizeChannelKey(client.handshake.query.channelKey);
+    const isLobbyChatOnly =
+      client.handshake.query.connectionMode === 'lobby-chat';
     const channelService = this.channelWorldsService.get(channelKey);
     const roomName = this.getRoomName(channelKey);
     client.data.channelKey = channelKey;
+    client.data.isLobbyChatOnly = isLobbyChatOnly;
     client.join(roomName);
 
     const sessionToken = this.extractSessionToken(
@@ -86,12 +92,20 @@ export class ChannelGateway
         const previousSocket = this.server.sockets.get(previousSocketId);
 
         if (previousSocket) {
+          if (isLobbyChatOnly && !this.isLobbyChatOnly(previousSocket)) {
+            client.emit('channel:error', {
+              message: '바카오톡에 직접 접속 중입니다.',
+            });
+            client.disconnect(true);
+            return;
+          }
+
           previousSocket.emit('channel:error', {
             message: 'This account was connected from another session.',
           });
           previousSocket.disconnect(true);
         } else {
-          channelService.removeParticipant(previousSocketId);
+          this.removeGhostParticipant(channelKey, previousSocketId);
         }
       }
 
@@ -99,7 +113,15 @@ export class ChannelGateway
         member,
         client.id,
         likeCount,
+        isLobbyChatOnly,
       );
+
+      // 인증 조회(await) 중에 끊긴 소켓은 disconnect 이벤트가 이미 지나가
+      // 다시 오지 않으므로, 여기서 제거하지 않으면 유령 참가자로 남는다.
+      if (!client.connected) {
+        this.removeGhostParticipant(channelKey, client.id);
+        return;
+      }
 
       client.emit(
         'channel:bootstrap',
@@ -135,6 +157,8 @@ export class ChannelGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: MoveMessageBody,
   ): void {
+    this.markClientActive(client);
+
     const channelKey = this.getClientChannelKey(client);
     const participant = this.channelWorldsService
       .get(channelKey)
@@ -152,6 +176,10 @@ export class ChannelGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ChatMessageBody,
   ): void {
+    // participant:render-sync는 잠수 중에도 자동 취침 이모션이 주기적으로 보내므로
+    // 활동 판정은 사용자가 직접 일으키는 이동/채팅 이벤트에서만 기록한다.
+    this.markClientActive(client);
+
     const channelKey = this.getClientChannelKey(client);
     const result = this.channelWorldsService
       .get(channelKey)
@@ -177,6 +205,8 @@ export class ChannelGateway
 
   @SubscribeMessage('chat:clear-pinned')
   handleClearPinnedChat(@ConnectedSocket() client: Socket): void {
+    this.markClientActive(client);
+
     const channelKey = this.getClientChannelKey(client);
     const message = this.channelWorldsService
       .get(channelKey)
@@ -214,8 +244,19 @@ export class ChannelGateway
     }
   }
 
+  /**
+   * 대기실 채팅 위젯이 사이트 내 사용자 상호작용(클릭/키입력 등)을 알리는 하트비트.
+   * 채팅 없이 사이트를 둘러보는 중에도 잠수로 전환되지 않도록 활동으로 기록한다.
+   */
+  @SubscribeMessage('presence:activity')
+  handlePresenceActivity(@ConnectedSocket() client: Socket): void {
+    this.markClientActive(client);
+  }
+
   @SubscribeMessage('monster:spawn')
   handleMonsterSpawn(@ConnectedSocket() client: Socket): void {
+    this.markClientActive(client);
+
     const channelKey = this.getClientChannelKey(client);
     const result = this.channelWorldsService
       .get(channelKey)
@@ -274,20 +315,32 @@ export class ChannelGateway
       );
 
       if (previousGuestSocket) {
-        client.emit('channel:error', {
-          message: 'Guests cannot connect multiple times from the same IP.',
-        });
-        client.disconnect(true);
-        return;
-      }
+        if (!this.isLobbyChatOnly(previousGuestSocket)) {
+          client.emit('channel:error', {
+            message: 'Guests cannot connect multiple times from the same IP.',
+          });
+          client.disconnect(true);
+          return;
+        }
 
-      channelService.removeParticipant(previousGuestSocketId);
+        previousGuestSocket.disconnect(true);
+      } else {
+        this.removeGhostParticipant(channelKey, previousGuestSocketId);
+      }
     }
 
     const participant = channelService.addGuestParticipant(
       client.id,
       ipAddress,
+      this.isLobbyChatOnly(client),
     );
+
+    // 인증 실패 폴백으로 진입한 경우 앞선 await 동안 이미 끊겼을 수 있다.
+    if (!client.connected) {
+      this.removeGhostParticipant(channelKey, client.id);
+      return;
+    }
+
     client.emit(
       'channel:bootstrap',
       channelService.getBootstrapPayload(client.id),
@@ -303,7 +356,8 @@ export class ChannelGateway
       channelKey,
       channelService,
     ] of this.channelWorldsService.entries()) {
-      populations[channelKey] = channelService.getParticipantCount();
+      // 채널별 인원수는 바카오톡 실접속 기준으로 집계한다(대기실 채팅 위젯 연결 제외).
+      populations[channelKey] = channelService.getChannelParticipantCount();
     }
 
     return populations;
@@ -315,6 +369,93 @@ export class ChannelGateway
     }
 
     this.server.emit('channel:populations', this.getChannelPopulations());
+  }
+
+  /** disconnect 이벤트가 다시 오지 않는 죽은 소켓의 참가자를 제거하고 이탈을 알린다. */
+  private removeGhostParticipant(
+    channelKey: ChannelKey,
+    socketId: string,
+  ): void {
+    const removed = this.channelWorldsService
+      .get(channelKey)
+      .removeParticipant(socketId);
+
+    if (!removed) {
+      return;
+    }
+
+    this.server
+      .to(this.getRoomName(channelKey))
+      .emit('channel:participant-left', {
+        participantId: removed.id,
+      });
+    this.broadcastPopulations();
+  }
+
+  /**
+   * 이동/채팅 등 사용자 행동을 활동으로 기록한다.
+   * 잠수 상태가 풀린 경우에는 갱신된 참가자를 방에 알린다.
+   */
+  private markClientActive(client: Socket): void {
+    const channelKey = this.getClientChannelKey(client);
+    const awakened = this.channelWorldsService
+      .get(channelKey)
+      .touchActivity(client.id);
+
+    if (awakened) {
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:participant-updated', awakened);
+    }
+  }
+
+  /**
+   * 안전망 루프: 참가자 명단을 실제 소켓 목록과 대조해 유령 참가자를 제거하고,
+   * 활동 기한이 지난 참가자를 잠수(isAfk)로 전환해 브로드캐스트한다.
+   */
+  private startPresenceSweepLoop() {
+    this.presenceSweepTimer = setInterval(() => {
+      if (!this.server) {
+        return;
+      }
+
+      let hasRemovedGhost = false;
+
+      for (const [
+        channelKey,
+        channelService,
+      ] of this.channelWorldsService.entries()) {
+        const roomName = this.getRoomName(channelKey);
+
+        for (const socketId of channelService.getParticipantSocketIds()) {
+          if (this.server.sockets.has(socketId)) {
+            continue;
+          }
+
+          const removed = channelService.removeParticipant(socketId);
+
+          if (removed) {
+            hasRemovedGhost = true;
+            this.logger.warn(
+              `Swept ghost participant ${removed.id} from ${channelKey}`,
+            );
+            this.server.to(roomName).emit('channel:participant-left', {
+              participantId: removed.id,
+            });
+          }
+        }
+
+        for (const participant of channelService.markIdleParticipantsAsAfk()) {
+          this.server
+            .to(roomName)
+            .emit('channel:participant-updated', participant);
+        }
+      }
+
+      if (hasRemovedGhost) {
+        this.broadcastPopulations();
+      }
+    }, ChannelGateway.PRESENCE_SWEEP_INTERVAL_MS);
   }
 
   private extractClientIp(client: Socket): string | null {
@@ -367,6 +508,10 @@ export class ChannelGateway
 
   private getClientChannelKey(client: Socket): ChannelKey {
     return normalizeChannelKey(client.data.channelKey);
+  }
+
+  private isLobbyChatOnly(client: Socket): boolean {
+    return client.data.isLobbyChatOnly === true;
   }
 
   private getRoomName(channelKey: ChannelKey): string {

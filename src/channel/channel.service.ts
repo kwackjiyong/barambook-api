@@ -63,6 +63,10 @@ export interface ChannelParticipant {
   isGuest: boolean;
   isOperator?: boolean;
   isJumping?: boolean;
+  /** 장시간 무활동(이동/채팅 없음) 상태. 활동 접속자수 집계와 잠수 표시에 쓰인다. */
+  isAfk?: boolean;
+  /** 실제 채널 화면 없이 전역 대기실 채팅 위젯으로만 연결된 참가자. */
+  isLobbyChatOnly?: boolean;
   x: number;
   y: number;
   direction: ChannelDirection;
@@ -115,6 +119,8 @@ export class ChannelService {
   private static readonly RIDE_MOVE_COOLDOWN_MS = 120;
   private static readonly AUTH_CHAT_COOLDOWN_MS = 200;
   private static readonly GUEST_CHAT_COOLDOWN_MS = 1000;
+  // 이 시간 동안 이동/채팅이 없으면 잠수(isAfk) 상태로 전환한다.
+  private static readonly AFK_THRESHOLD_MS = 60 * 60 * 1000;
   private static readonly CHAT_BUBBLE_LIFETIME_MS = 6 * 1000;
   private static readonly MONSTER_LIFETIME_MS = 30 * 1000;
   // 한 타일 이동 간격(클수록 느리게 움직인다).
@@ -169,6 +175,7 @@ export class ChannelService {
   private readonly monsters = new Map<string, ChannelMonster>();
   private readonly lastMovedAt = new Map<string, number>();
   private readonly lastChattedAt = new Map<string, number>();
+  private readonly lastActiveAt = new Map<string, number>();
   private readonly lastMonsterMovedAtById = new Map<string, number>();
   private lastPopulationRefillAt = 0;
 
@@ -215,18 +222,30 @@ export class ChannelService {
     member: Member,
     socketId: string,
     likeCount: number,
+    isLobbyChatOnly = false,
   ): ChannelParticipant {
-    const participant = this.createParticipant(member, socketId, likeCount);
+    const participant = this.createParticipant(
+      member,
+      socketId,
+      likeCount,
+      isLobbyChatOnly,
+    );
     this.participants.set(socketId, participant);
     this.socketIdsByAccountId.set(member.accountId, socketId);
+    this.lastActiveAt.set(socketId, Date.now());
     return participant;
   }
 
-  addGuestParticipant(socketId: string, ipAddress: string): ChannelParticipant {
-    const participant = this.createGuestParticipant(socketId);
+  addGuestParticipant(
+    socketId: string,
+    ipAddress: string,
+    isLobbyChatOnly = false,
+  ): ChannelParticipant {
+    const participant = this.createGuestParticipant(socketId, isLobbyChatOnly);
     this.participants.set(socketId, participant);
     this.guestSocketIdsByIp.set(ipAddress, socketId);
     this.guestIpsBySocketId.set(socketId, ipAddress);
+    this.lastActiveAt.set(socketId, Date.now());
     return participant;
   }
 
@@ -236,6 +255,73 @@ export class ChannelService {
 
   getParticipantCount(): number {
     return this.participants.size;
+  }
+
+  /** 대기실 채팅 위젯 전용 연결을 제외한, 바카오톡 화면에 실제로 접속한 인원 수. */
+  getChannelParticipantCount(): number {
+    let count = 0;
+
+    for (const participant of this.participants.values()) {
+      if (participant.isLobbyChatOnly !== true) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  getParticipantSocketIds(): string[] {
+    return Array.from(this.participants.keys());
+  }
+
+  /**
+   * 참가자의 활동 시각을 갱신한다. 잠수 상태였다면 해제하고
+   * 갱신된 참가자를 반환해 게이트웨이가 브로드캐스트할 수 있게 한다.
+   */
+  touchActivity(socketId: string): ChannelParticipant | null {
+    const current = this.participants.get(socketId);
+
+    if (!current) {
+      return null;
+    }
+
+    this.lastActiveAt.set(socketId, Date.now());
+
+    if (current.isAfk !== true) {
+      return null;
+    }
+
+    const awakened: ChannelParticipant = { ...current, isAfk: false };
+    this.participants.set(socketId, awakened);
+    return awakened;
+  }
+
+  /** 활동 기한이 지난 참가자를 잠수 상태로 전환하고, 새로 잠수가 된 참가자만 반환한다. */
+  markIdleParticipantsAsAfk(now = Date.now()): ChannelParticipant[] {
+    const marked: ChannelParticipant[] = [];
+
+    for (const [socketId, participant] of this.participants) {
+      if (participant.isAfk === true) {
+        continue;
+      }
+
+      const lastActiveAt = this.lastActiveAt.get(socketId);
+
+      if (lastActiveAt === undefined) {
+        this.lastActiveAt.set(socketId, now);
+        continue;
+      }
+
+      if (now - lastActiveAt < ChannelService.AFK_THRESHOLD_MS) {
+        continue;
+      }
+
+      const next: ChannelParticipant = { ...participant, isAfk: true };
+      this.participants.set(socketId, next);
+      marked.push(next);
+    }
+
+    return marked;
   }
 
   findGuestSocketIdByIp(ipAddress: string): string | null {
@@ -259,6 +345,7 @@ export class ChannelService {
       }
       this.lastMovedAt.delete(socketId);
       this.lastChattedAt.delete(socketId);
+      this.lastActiveAt.delete(socketId);
     }
 
     return current;
@@ -599,6 +686,7 @@ export class ChannelService {
     member: Member,
     socketId: string,
     likeCount: number,
+    isLobbyChatOnly: boolean,
   ): ChannelParticipant {
     const position = this.getSpawnPosition(this.participants.size);
 
@@ -612,6 +700,7 @@ export class ChannelService {
       likeCount,
       isGuest: false,
       isOperator: member.isOperator === true,
+      isLobbyChatOnly,
       x: position.x,
       y: position.y,
       direction: 'down',
@@ -619,7 +708,10 @@ export class ChannelService {
     };
   }
 
-  private createGuestParticipant(socketId: string): ChannelParticipant {
+  private createGuestParticipant(
+    socketId: string,
+    isLobbyChatOnly: boolean,
+  ): ChannelParticipant {
     const position = this.getSpawnPosition(this.participants.size);
 
     return {
@@ -628,6 +720,7 @@ export class ChannelService {
       displayName: '',
       likeCount: 0,
       isGuest: true,
+      isLobbyChatOnly,
       x: position.x,
       y: position.y,
       direction: 'down',

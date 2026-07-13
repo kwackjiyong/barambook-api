@@ -243,6 +243,64 @@ describe('ChannelService', () => {
     expect(jumped?.y).toBe(participant.y);
     expect(grounded?.isJumping).toBe(false);
   });
+
+  it('marks participants as AFK after the idle threshold and wakes them on activity', () => {
+    service.addGuestParticipant('guest-socket-1', '127.0.0.1');
+
+    const notYetIdle = service.markIdleParticipantsAsAfk(
+      Date.now() + 59 * 60 * 1000,
+    );
+    expect(notYetIdle).toHaveLength(0);
+
+    const marked = service.markIdleParticipantsAsAfk(
+      Date.now() + 61 * 60 * 1000,
+    );
+    expect(marked).toHaveLength(1);
+    expect(marked[0]?.isAfk).toBe(true);
+
+    // 이미 잠수인 참가자는 다시 반환하지 않는다.
+    expect(
+      service.markIdleParticipantsAsAfk(Date.now() + 62 * 60 * 1000),
+    ).toHaveLength(0);
+
+    const awakened = service.touchActivity('guest-socket-1');
+    expect(awakened?.isAfk).toBe(false);
+
+    // 잠수가 아닌 참가자의 활동은 브로드캐스트 대상이 아니므로 null을 반환한다.
+    expect(service.touchActivity('guest-socket-1')).toBeNull();
+  });
+
+  it('keeps lobby-chat-only presence independent from AFK activity', () => {
+    const participant = service.addGuestParticipant(
+      'guest-lobby-socket',
+      '127.0.0.2',
+      true,
+    );
+
+    expect(participant.isLobbyChatOnly).toBe(true);
+    expect(participant.isAfk).not.toBe(true);
+
+    const [marked] = service.markIdleParticipantsAsAfk(
+      Date.now() + 61 * 60 * 1000,
+    );
+    expect(marked?.isLobbyChatOnly).toBe(true);
+    expect(marked?.isAfk).toBe(true);
+
+    const awakened = service.touchActivity('guest-lobby-socket');
+    expect(awakened?.isLobbyChatOnly).toBe(true);
+    expect(awakened?.isAfk).toBe(false);
+  });
+
+  it('clears activity tracking when a participant is removed', () => {
+    service.addGuestParticipant('guest-socket-1', '127.0.0.1');
+    service.removeParticipant('guest-socket-1');
+
+    expect(service.getParticipantSocketIds()).toHaveLength(0);
+    expect(
+      service.markIdleParticipantsAsAfk(Date.now() + 61 * 60 * 1000),
+    ).toHaveLength(0);
+    expect(service.touchActivity('guest-socket-1')).toBeNull();
+  });
 });
 
 function createMember(
