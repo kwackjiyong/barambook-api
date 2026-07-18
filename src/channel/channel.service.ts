@@ -138,8 +138,11 @@ export class ChannelService {
     '2099-12-31T23:59:59.999Z';
   private static readonly MONSTER_SPAWN_DISABLED_ERROR =
     '몬스터 소환 기능은 현재 비활성화되어 있습니다.';
-  private static readonly DALMAJI_MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
-    [{ name: '나비', renderId: 434, renderColor: 0, count: 20 }];
+  private static readonly RACCOON_VILLAGE_MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
+    [
+      { name: '토끼', renderId: 21, renderColor: 11, count: 10 },
+      { name: '다람쥐', renderId: 25, renderColor: 5, count: 10 },
+    ];
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
   private static readonly ATTACK_HIT_FORWARD_RANGE =
@@ -182,8 +185,8 @@ export class ChannelService {
     this.respawnCenterTileX = config.respawnCenterTileX;
     this.respawnCenterTileY = config.respawnCenterTileY;
     this.monsterPopulationPresets =
-      config.channelKey === '6571'
-        ? ChannelService.DALMAJI_MONSTER_POPULATION_PRESETS
+      config.channelKey === '67000'
+        ? ChannelService.RACCOON_VILLAGE_MONSTER_POPULATION_PRESETS
         : [];
   }
 

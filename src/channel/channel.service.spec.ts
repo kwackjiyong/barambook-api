@@ -1,6 +1,10 @@
 import { ChannelService, type ChannelMonster } from './channel.service';
 import { Member } from '../member/member.schema';
-import { DALMAJI_MAP_CONFIG, buildFallbackCollision } from './map-collision';
+import {
+  DALMAJI_MAP_CONFIG,
+  RACCOON_VILLAGE_MAP_CONFIG,
+  buildFallbackCollision,
+} from './map-collision';
 
 const TILE_SIZE = 24;
 
@@ -85,33 +89,64 @@ describe('ChannelService', () => {
     expect(getWildMonsters(service)).toHaveLength(0);
   });
 
-  it('maintains 20 butterflies in Dalmaji Pass and refills removed ones', () => {
+  it('does not maintain butterflies in Dalmaji Pass', () => {
     const dalmajiService = new ChannelService(
       DALMAJI_MAP_CONFIG,
       buildFallbackCollision(DALMAJI_MAP_CONFIG),
     );
-    const lastNow = runMonsterPopulationTicks(dalmajiService);
-    const butterflies = getWildMonsters(dalmajiService);
 
-    expect(butterflies).toHaveLength(20);
-    expect(butterflies).toEqual(
+    runMonsterPopulationTicks(dalmajiService);
+
+    expect(getWildMonsters(dalmajiService)).toHaveLength(0);
+  });
+
+  it('maintains 10 rabbits and 10 squirrels in Raccoon Village and refills removed ones', () => {
+    const raccoonVillageService = new ChannelService(
+      RACCOON_VILLAGE_MAP_CONFIG,
+      buildFallbackCollision(RACCOON_VILLAGE_MAP_CONFIG),
+    );
+    const lastNow = runMonsterPopulationTicks(raccoonVillageService);
+    const wildMonsters = getWildMonsters(raccoonVillageService);
+    const rabbits = wildMonsters.filter(
+      (monster) => monster.presetKey === '토끼',
+    );
+    const squirrels = wildMonsters.filter(
+      (monster) => monster.presetKey === '다람쥐',
+    );
+
+    expect(wildMonsters).toHaveLength(20);
+    expect(rabbits).toHaveLength(10);
+    expect(squirrels).toHaveLength(10);
+    expect(rabbits).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          presetKey: '나비',
-          renderId: 434,
-          renderColor: 0,
+          renderId: 21,
+          renderColor: 11,
         }),
       ]),
     );
-    expect(butterflies.every((monster) => monster.presetKey === '나비')).toBe(
-      true,
+    expect(squirrels).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          renderId: 25,
+          renderColor: 5,
+        }),
+      ]),
     );
 
-    dalmajiService.removeMonster(butterflies[0].id);
-    expect(getWildMonsters(dalmajiService)).toHaveLength(19);
+    raccoonVillageService.removeMonster(rabbits[0].id);
+    raccoonVillageService.removeMonster(squirrels[0].id);
+    expect(getWildMonsters(raccoonVillageService)).toHaveLength(18);
 
-    dalmajiService.maintainMonsterPopulation(lastNow + 600);
-    expect(getWildMonsters(dalmajiService)).toHaveLength(20);
+    raccoonVillageService.maintainMonsterPopulation(lastNow + 600);
+
+    const refilledMonsters = getWildMonsters(raccoonVillageService);
+    expect(
+      refilledMonsters.filter((monster) => monster.presetKey === '토끼'),
+    ).toHaveLength(10);
+    expect(
+      refilledMonsters.filter((monster) => monster.presetKey === '다람쥐'),
+    ).toHaveLength(10);
   });
 
   it('removes stale wild monsters when population is disabled', () => {
