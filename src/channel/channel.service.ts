@@ -138,20 +138,8 @@ export class ChannelService {
     '2099-12-31T23:59:59.999Z';
   private static readonly MONSTER_SPAWN_DISABLED_ERROR =
     '몬스터 소환 기능은 현재 비활성화되어 있습니다.';
-  private static readonly MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
-    [
-      { name: '토끼', renderId: 21, renderColor: 11, count: 10 },
-      { name: '강아지', renderId: 18, renderColor: 5, count: 1 },
-      { name: '새끼돼지', renderId: 20, renderColor: 9, count: 1 },
-      { name: '돼지', renderId: 19, renderColor: 9, count: 1 },
-      { name: '다람쥐', renderId: 25, renderColor: 5, count: 10 },
-      { name: '소', renderId: 27, renderColor: 5, count: 2 },
-      { name: '닭', renderId: 28, renderColor: 3, count: 2 },
-      { name: '누렁이', renderId: 103, renderColor: 5, count: 1 },
-      { name: '백호', renderId: 216, renderColor: 0, count: 1 },
-      { name: '멍구', renderId: 345, renderColor: 0, count: 1 },
-      { name: '나비', renderId: 434, renderColor: 0, count: 1 },
-    ];
+  private static readonly DALMAJI_MONSTER_POPULATION_PRESETS: MonsterPopulationPreset[] =
+    [{ name: '나비', renderId: 434, renderColor: 0, count: 20 }];
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
   private static readonly ATTACK_HIT_FORWARD_RANGE =
@@ -193,7 +181,10 @@ export class ChannelService {
     this.collision = collision;
     this.respawnCenterTileX = config.respawnCenterTileX;
     this.respawnCenterTileY = config.respawnCenterTileY;
-    this.monsterPopulationPresets = [];
+    this.monsterPopulationPresets =
+      config.channelKey === '6571'
+        ? ChannelService.DALMAJI_MONSTER_POPULATION_PRESETS
+        : [];
   }
 
   private get maxTileX(): number {

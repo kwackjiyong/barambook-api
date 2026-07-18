@@ -1,5 +1,6 @@
 import { ChannelService, type ChannelMonster } from './channel.service';
 import { Member } from '../member/member.schema';
+import { DALMAJI_MAP_CONFIG, buildFallbackCollision } from './map-collision';
 
 const TILE_SIZE = 24;
 
@@ -82,6 +83,35 @@ describe('ChannelService', () => {
     service.maintainMonsterPopulation(lastNow + 600);
 
     expect(getWildMonsters(service)).toHaveLength(0);
+  });
+
+  it('maintains 20 butterflies in Dalmaji Pass and refills removed ones', () => {
+    const dalmajiService = new ChannelService(
+      DALMAJI_MAP_CONFIG,
+      buildFallbackCollision(DALMAJI_MAP_CONFIG),
+    );
+    const lastNow = runMonsterPopulationTicks(dalmajiService);
+    const butterflies = getWildMonsters(dalmajiService);
+
+    expect(butterflies).toHaveLength(20);
+    expect(butterflies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          presetKey: '나비',
+          renderId: 434,
+          renderColor: 0,
+        }),
+      ]),
+    );
+    expect(butterflies.every((monster) => monster.presetKey === '나비')).toBe(
+      true,
+    );
+
+    dalmajiService.removeMonster(butterflies[0].id);
+    expect(getWildMonsters(dalmajiService)).toHaveLength(19);
+
+    dalmajiService.maintainMonsterPopulation(lastNow + 600);
+    expect(getWildMonsters(dalmajiService)).toHaveLength(20);
   });
 
   it('removes stale wild monsters when population is disabled', () => {
