@@ -145,7 +145,7 @@ export const DECK_MAP_CONFIG: MapConfig = {
   respawnCenterTileY: 30,
 };
 
-/** 달맞이고개(맵 6571) 설정. 가로로 긴 맵(200×40). */
+/** 달맞이고개(맵 6571) 설정. 가로로 긴 맵(200×40). 리스폰은 상단 배경이 보이는 (99,9). */
 export const DALMAJI_MAP_CONFIG: MapConfig = {
   channelKey: '6571',
   channelLabel: '달맞이고개',
@@ -154,8 +154,8 @@ export const DALMAJI_MAP_CONFIG: MapConfig = {
   tileSize: 24,
   width: 200,
   height: 40,
-  respawnCenterTileX: 100,
-  respawnCenterTileY: 20,
+  respawnCenterTileX: 99,
+  respawnCenterTileY: 9,
 };
 
 /** 너구리마을(맵 67000) 설정. 소형 맵(40×30). */
