@@ -1,7 +1,25 @@
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
-import { Response } from 'express';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
 import { RendererService } from '../renderer/renderer.service';
+import { GRADES } from './grade';
+import { Member } from './member.schema';
+import { MemberSessionGuard } from './member-session.guard';
 import { MemberService } from './member.service';
+
+type AuthenticatedRequest = Request & {
+  member?: Member;
+};
 
 // 같은 updatedAt이면 재렌더 없이 재사용하는 대표 캐릭터 이미지 메모리 캐시
 interface CachedCharacterImage {
@@ -22,6 +40,18 @@ export class MemberController {
     private readonly memberService: MemberService,
     private readonly rendererService: RendererService,
   ) {}
+
+  @Get('grades')
+  getGrades() {
+    return GRADES;
+  }
+
+  @Post('attendance')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberSessionGuard)
+  checkAttendance(@Req() req: AuthenticatedRequest) {
+    return this.memberService.checkAttendance(req.member as Member);
+  }
 
   /**
    * 저장된 대표 캐릭터를 이미지 바이너리(PNG/APNG)로 응답한다.

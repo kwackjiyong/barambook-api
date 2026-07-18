@@ -79,6 +79,21 @@ export class Member extends Document {
   @Prop({ default: false })
   isOperator: boolean;
 
+  // 사용자 등급 산정에 사용하는 누적 포인트.
+  @Prop({ default: 0, min: 0 })
+  point: number;
+
+  // 한국 날짜(YYYY-MM-DD) 기준 마지막 출석체크 일자.
+  @Prop()
+  lastAttendanceDate?: string;
+
+  // 거래 성사 포인트의 한국 날짜 기준 일일 지급 횟수.
+  @Prop()
+  tradeCompletionPointDate?: string;
+
+  @Prop({ default: 0, min: 0 })
+  tradeCompletionPointCount: number;
+
   // 레거시(캐릭터명/비밀번호) 계정 전용 필드. SSO 계정에는 존재하지 않음.
   @Prop()
   passwordHash?: string;

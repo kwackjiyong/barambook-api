@@ -15,7 +15,11 @@ export type ChannelKey =
   | '800'
   | '2080'
   | '6571'
-  | '67000';
+  | '67000'
+  | '45200'
+  | '690'
+  | '790'
+  | '41007';
 
 /**
  * 채널 하나에 대응하는 맵 설정. 맵을 바꾸려면 cmpName/리스폰 좌표만 교체하면 된다.
@@ -167,9 +171,61 @@ export const RACCOON_VILLAGE_MAP_CONFIG: MapConfig = {
   respawnCenterTileY: 15,
 };
 
-export const DEFAULT_CHANNEL_KEY: ChannelKey = SUNJE_MAP_CONFIG.channelKey;
+/** 폭염도(맵 45200) 설정. 지정 리스폰 중심은 (95, 143). */
+export const HEAT_ISLAND_MAP_CONFIG: MapConfig = {
+  channelKey: '45200',
+  channelLabel: '폭염도',
+  mapName: 'Ba045200.map',
+  cmpName: 'Ba045200.cmp',
+  tileSize: 24,
+  width: 200,
+  height: 200,
+  respawnCenterTileX: 95,
+  respawnCenterTileY: 143,
+};
+
+/** 소극장(맵 690) 설정. 소형 맵(30×30). */
+export const SMALL_THEATER_MAP_CONFIG: MapConfig = {
+  channelKey: '690',
+  channelLabel: '소극장',
+  mapName: 'Ba000690.map',
+  cmpName: 'Ba000690.cmp',
+  tileSize: 24,
+  width: 30,
+  height: 30,
+  respawnCenterTileX: 15,
+  respawnCenterTileY: 15,
+};
+
+/** 길림청룡신전(맵 790) 설정. 소형 맵(32×32). */
+export const GILIM_BLUE_DRAGON_SHRINE_MAP_CONFIG: MapConfig = {
+  channelKey: '790',
+  channelLabel: '길림청룡신전',
+  mapName: 'Ba000790.map',
+  cmpName: 'Ba000790.cmp',
+  tileSize: 24,
+  width: 32,
+  height: 32,
+  respawnCenterTileX: 17,
+  respawnCenterTileY: 16,
+};
+
+/** 원혼의방(맵 41007) 설정. 소형 맵(15×15). */
+export const RESTLESS_SPIRIT_ROOM_MAP_CONFIG: MapConfig = {
+  channelKey: '41007',
+  channelLabel: '원혼의방',
+  mapName: 'Ba041007.map',
+  cmpName: 'Ba041007.cmp',
+  tileSize: 24,
+  width: 15,
+  height: 15,
+  respawnCenterTileX: 7,
+  respawnCenterTileY: 7,
+};
+
+export const DEFAULT_CHANNEL_KEY: ChannelKey = DALMAJI_MAP_CONFIG.channelKey;
 export const CHANNEL_MAP_CONFIGS = [
-  SUNJE_MAP_CONFIG,
+  DALMAJI_MAP_CONFIG,
   BUYEO_MAP_CONFIG,
   GOGYUNDO_MAP_CONFIG,
   NORTH_POLE_MAP_CONFIG,
@@ -177,8 +233,11 @@ export const CHANNEL_MAP_CONFIGS = [
   OJAKGYO_MAP_CONFIG,
   BUYEO_EAST_MAP_CONFIG,
   DECK_MAP_CONFIG,
-  DALMAJI_MAP_CONFIG,
   RACCOON_VILLAGE_MAP_CONFIG,
+  HEAT_ISLAND_MAP_CONFIG,
+  SMALL_THEATER_MAP_CONFIG,
+  GILIM_BLUE_DRAGON_SHRINE_MAP_CONFIG,
+  RESTLESS_SPIRIT_ROOM_MAP_CONFIG,
 ] as const satisfies readonly MapConfig[];
 
 export function normalizeChannelKey(value: unknown): ChannelKey {

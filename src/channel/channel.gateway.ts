@@ -43,7 +43,11 @@ export class ChannelGateway
   private readonly logger = new Logger(ChannelGateway.name);
   private monsterLoopTimer: NodeJS.Timeout | null = null;
   private presenceSweepTimer: NodeJS.Timeout | null = null;
+  private readonly channelPointTimers = new Map<string, NodeJS.Timeout>();
   private static readonly PRESENCE_SWEEP_INTERVAL_MS = 30 * 1000;
+  private static readonly CHANNEL_POINT_INTERVAL_MS = 30 * 60 * 1000;
+  private static readonly CHANNEL_POINT_AMOUNT = 100;
+  private static readonly CHANNEL_CHAT_POINT_AMOUNT = 5;
 
   @WebSocketServer()
   private server!: Namespace;
@@ -115,6 +119,7 @@ export class ChannelGateway
         likeCount,
         isLobbyChatOnly,
       );
+      client.data.accountId = member.accountId;
 
       // 인증 조회(await) 중에 끊긴 소켓은 disconnect 이벤트가 이미 지나가
       // 다시 오지 않으므로, 여기서 제거하지 않으면 유령 참가자로 남는다.
@@ -128,6 +133,7 @@ export class ChannelGateway
         channelService.getBootstrapPayload(client.id),
       );
       client.to(roomName).emit('channel:participant-joined', participant);
+      this.startChannelPointTimer(client, member.accountId);
       this.broadcastPopulations();
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
@@ -137,6 +143,7 @@ export class ChannelGateway
   }
 
   handleDisconnect(client: Socket): void {
+    this.clearChannelPointTimer(client.id);
     const channelKey = this.getClientChannelKey(client);
     const removed = this.channelWorldsService
       .get(channelKey)
@@ -200,6 +207,17 @@ export class ChannelGateway
       this.server
         .to(this.getRoomName(channelKey))
         .emit('channel:chat-message', result.message);
+
+      const accountId = client.data.accountId;
+
+      if (typeof accountId === 'string' && accountId.length > 0) {
+        this.awardChannelPoints(
+          client,
+          accountId,
+          ChannelGateway.CHANNEL_CHAT_POINT_AMOUNT,
+          'chat',
+        );
+      }
     }
   }
 
@@ -376,6 +394,7 @@ export class ChannelGateway
     channelKey: ChannelKey,
     socketId: string,
   ): void {
+    this.clearChannelPointTimer(socketId);
     const removed = this.channelWorldsService
       .get(channelKey)
       .removeParticipant(socketId);
@@ -406,6 +425,66 @@ export class ChannelGateway
       this.server
         .to(this.getRoomName(channelKey))
         .emit('channel:participant-updated', awakened);
+    }
+  }
+
+  private startChannelPointTimer(client: Socket, accountId: string): void {
+    this.clearChannelPointTimer(client.id);
+
+    const timer = setInterval(() => {
+      if (!client.connected) {
+        this.clearChannelPointTimer(client.id);
+        return;
+      }
+
+      this.awardChannelPoints(
+        client,
+        accountId,
+        ChannelGateway.CHANNEL_POINT_AMOUNT,
+        'stay',
+      );
+    }, ChannelGateway.CHANNEL_POINT_INTERVAL_MS);
+
+    this.channelPointTimers.set(client.id, timer);
+  }
+
+  private awardChannelPoints(
+    client: Socket,
+    accountId: string,
+    amount: number,
+    source: 'chat' | 'stay',
+  ): void {
+    void this.memberService
+      .addPoints(accountId, amount)
+      .then((point) => {
+        if (!client.connected) {
+          return;
+        }
+
+        const channelKey = this.getClientChannelKey(client);
+        const participant = this.channelWorldsService
+          .get(channelKey)
+          .updateParticipantGrade(client.id, point);
+
+        if (participant) {
+          this.server
+            .to(this.getRoomName(channelKey))
+            .emit('channel:participant-updated', participant);
+        }
+      })
+      .catch((error) => {
+        this.logger.warn(
+          `Failed to award channel ${source} points for ${accountId}: ${String(error)}`,
+        );
+      });
+  }
+
+  private clearChannelPointTimer(socketId: string): void {
+    const timer = this.channelPointTimers.get(socketId);
+
+    if (timer) {
+      clearInterval(timer);
+      this.channelPointTimers.delete(socketId);
     }
   }
 

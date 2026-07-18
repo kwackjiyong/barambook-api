@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { createHash, randomBytes } from 'crypto';
 import { Model } from 'mongoose';
 import { AuthProvider, Member } from './member.schema';
+import { resolveGrade } from './grade';
 import {
   fetchMverseProfileByCode,
   getMverseBackgroundById,
@@ -42,6 +43,18 @@ export interface AuthenticatedSession {
   member: Member;
 }
 
+export interface MemberPointSummary {
+  point: number;
+  grade: ReturnType<typeof resolveGrade>;
+  lastAttendanceDate?: string;
+  canCheckIn: boolean;
+}
+
+export interface AttendanceResult extends MemberPointSummary {
+  awarded: boolean;
+  awardedPoint: number;
+}
+
 // 닉네임 변경 주기 제한: 마지막 변경으로부터 7일
 const NICKNAME_CHANGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,6 +62,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MVERSE_RECHECK_INTERVAL_MS = 10 * 60 * 1000;
 // 배경 변경 챌린지 유효시간. 이 안에 배경을 바꾸고 저장해야 한다.
 const MVERSE_CHALLENGE_TTL_MS = 30 * 60 * 1000;
+export const ATTENDANCE_POINT = 500;
 
 @Injectable()
 export class MemberService {
@@ -139,6 +153,9 @@ export class MemberService {
         maplestoryWorldVerifiedAt: 1,
         baramNickname: 1,
         isOperator: 1,
+        point: 1,
+        lastAttendanceDate: 1,
+        renderCharacter: 1,
         representativeCharacterName: 1,
         lastLoginAt: 1,
         createdAt: 1,
@@ -186,6 +203,154 @@ export class MemberService {
     await this.memberModel
       .updateOne({ accountId }, { $set: { lastActiveAt: new Date() } })
       .exec();
+  }
+
+  getPointSummary(member: Member): MemberPointSummary {
+    const point = Math.max(0, Math.floor(Number(member.point) || 0));
+    const lastAttendanceDate = member.lastAttendanceDate;
+
+    return {
+      point,
+      grade: resolveGrade(point, member.isOperator === true),
+      lastAttendanceDate,
+      canCheckIn: lastAttendanceDate !== this.getKoreanDateKey(),
+    };
+  }
+
+  async addPoints(accountId: string, amount: number): Promise<number> {
+    const normalizedAmount = Math.max(0, Math.floor(amount));
+
+    if (normalizedAmount === 0) {
+      const member = await this.memberModel
+        .findOne({ accountId })
+        .select({ point: 1 })
+        .lean()
+        .exec();
+      return Math.max(0, Math.floor(Number(member?.point) || 0));
+    }
+
+    const member = await this.memberModel
+      .findOneAndUpdate(
+        { accountId },
+        { $inc: { point: normalizedAmount } },
+        { new: true },
+      )
+      .select({ point: 1 })
+      .exec();
+
+    return Math.max(0, Math.floor(Number(member?.point) || 0));
+  }
+
+  async addDailyLimitedTradeCompletionPoints(
+    accountId: string,
+    amount: number,
+    dailyLimit: number,
+  ): Promise<{ awarded: boolean; point: number }> {
+    const normalizedAmount = Math.max(0, Math.floor(amount));
+    const normalizedLimit = Math.max(1, Math.floor(dailyLimit));
+    const today = this.getKoreanDateKey();
+
+    const member = await this.memberModel
+      .findOneAndUpdate(
+        {
+          accountId,
+          $or: [
+            { tradeCompletionPointDate: { $ne: today } },
+            { tradeCompletionPointCount: { $lt: normalizedLimit } },
+          ],
+        },
+        [
+          {
+            $set: {
+              point: {
+                $add: [{ $ifNull: ['$point', 0] }, normalizedAmount],
+              },
+              tradeCompletionPointDate: today,
+              tradeCompletionPointCount: {
+                $cond: [
+                  { $eq: ['$tradeCompletionPointDate', today] },
+                  {
+                    $add: [
+                      { $ifNull: ['$tradeCompletionPointCount', 0] },
+                      1,
+                    ],
+                  },
+                  1,
+                ],
+              },
+            },
+          },
+        ],
+        { new: true },
+      )
+      .select({ point: 1 })
+      .exec();
+
+    if (member) {
+      return {
+        awarded: true,
+        point: Math.max(0, Math.floor(Number(member.point) || 0)),
+      };
+    }
+
+    const current = await this.memberModel
+      .findOne({ accountId })
+      .select({ point: 1 })
+      .lean()
+      .exec();
+
+    return {
+      awarded: false,
+      point: Math.max(0, Math.floor(Number(current?.point) || 0)),
+    };
+  }
+
+  async checkAttendance(member: Member): Promise<AttendanceResult> {
+    const today = this.getKoreanDateKey();
+    const updated = await this.memberModel
+      .findOneAndUpdate(
+        {
+          accountId: member.accountId,
+          lastAttendanceDate: { $ne: today },
+        },
+        {
+          $set: { lastAttendanceDate: today },
+          $inc: { point: ATTENDANCE_POINT },
+        },
+        { new: true },
+      )
+      .select({
+        accountId: 1,
+        point: 1,
+        lastAttendanceDate: 1,
+        isOperator: 1,
+      })
+      .exec();
+
+    if (updated) {
+      return {
+        ...this.getPointSummary(updated),
+        awarded: true,
+        awardedPoint: ATTENDANCE_POINT,
+      };
+    }
+
+    const current = await this.memberModel
+      .findOne({ accountId: member.accountId })
+      .select({
+        accountId: 1,
+        point: 1,
+        lastAttendanceDate: 1,
+        isOperator: 1,
+      })
+      .exec();
+    const summary = this.getPointSummary(current ?? member);
+
+    return {
+      ...summary,
+      awarded: false,
+      awardedPoint: 0,
+    };
   }
 
   // 거래소 활동 배지용: 게시자 accountId 목록의 lastActiveAt 일괄 조회
@@ -604,5 +769,14 @@ export class MemberService {
 
   private hashSessionToken(sessionToken: string): string {
     return createHash('sha256').update(sessionToken).digest('hex');
+  }
+
+  private getKoreanDateKey(now = new Date()): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
   }
 }

@@ -168,6 +168,10 @@ export class TradeListing extends Document {
   @Prop()
   closedAt?: Date;
 
+  // 거래 완료 포인트가 당사자에게 지급된 시각.
+  @Prop()
+  completionPointAwardedAt?: Date;
+
   @Prop()
   createdAt: Date;
 

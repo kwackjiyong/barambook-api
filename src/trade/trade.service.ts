@@ -27,6 +27,9 @@ import {
   TradeThread,
 } from './trade.schema';
 
+const TRADE_COMPLETION_POINT = 500;
+const TRADE_COMPLETION_DAILY_LIMIT = 5;
+
 // 게시자의 바람비전 활동 상태. 마지막 사이트 활동(하트비트)이
 // OWNER_ACTIVE_WINDOW_MS 이내면 'active'(활동중), 아니면 'away'(부재중).
 export type TradeOwnerPresence = 'active' | 'away';
@@ -1308,6 +1311,7 @@ export class TradeService {
     requesterAccountId?: string,
   ): Promise<SerializedTradeListing> {
     const listing = await this.findListingById(id);
+    let completedRequesterAccountId: string | undefined;
 
     // 거래 완료/게시 취소 판정은 게시자만 할 수 있다.
     // (요청자는 releaseRequest로 자신의 요청만 취소할 수 있다)
@@ -1359,12 +1363,46 @@ export class TradeService {
       listing.requesterDiscordId = selected.requesterDiscordId;
       listing.requesterEmail = selected.requesterEmail;
       listing.requestedAt = selected.requestedAt;
+      completedRequesterAccountId = selected.requesterAccountId;
     }
 
     listing.status = status as TradeStatus;
     listing.closedAt = new Date();
 
     await listing.save();
+
+    if (
+      status === TradeResolveStatusDto.Completed &&
+      completedRequesterAccountId &&
+      !listing.completionPointAwardedAt
+    ) {
+      const awardedAt = new Date();
+      const claim = await this.tradeListingModel
+        .updateOne(
+          {
+            _id: listing._id,
+            completionPointAwardedAt: { $exists: false },
+          },
+          { $set: { completionPointAwardedAt: awardedAt } },
+        )
+        .exec();
+      const accountIds = [
+        ...new Set([listing.ownerAccountId, completedRequesterAccountId]),
+      ];
+
+      if (claim.modifiedCount > 0) {
+        await Promise.all(
+          accountIds.map((accountId) =>
+            this.memberService.addDailyLimitedTradeCompletionPoints(
+              accountId,
+              TRADE_COMPLETION_POINT,
+              TRADE_COMPLETION_DAILY_LIMIT,
+            ),
+          ),
+        );
+        listing.completionPointAwardedAt = awardedAt;
+      }
+    }
 
     return this.serializeListing(listing, { member });
   }

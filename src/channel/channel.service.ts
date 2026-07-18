@@ -1,5 +1,6 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { Member } from '../member/member.schema';
+import { resolveGrade, type MemberGrade } from '../member/grade';
 import {
   BUYEO_MAP_CONFIG,
   buildFallbackCollision,
@@ -62,6 +63,7 @@ export interface ChannelParticipant {
   likeCount: number;
   isGuest: boolean;
   isOperator?: boolean;
+  grade?: MemberGrade;
   isJumping?: boolean;
   /** 장시간 무활동(이동/채팅 없음) 상태. 활동 접속자수 집계와 잠수 표시에 쓰인다. */
   isAfk?: boolean;
@@ -294,6 +296,30 @@ export class ChannelService {
     const awakened: ChannelParticipant = { ...current, isAfk: false };
     this.participants.set(socketId, awakened);
     return awakened;
+  }
+
+  updateParticipantGrade(
+    socketId: string,
+    point: number,
+  ): ChannelParticipant | null {
+    const current = this.participants.get(socketId);
+
+    if (!current || current.isGuest) {
+      return null;
+    }
+
+    const grade = resolveGrade(point, current.isOperator === true);
+
+    if (
+      current.grade?.id === grade.id &&
+      current.grade?.isMaster === grade.isMaster
+    ) {
+      return null;
+    }
+
+    const updated = { ...current, grade };
+    this.participants.set(socketId, updated);
+    return updated;
   }
 
   /** 활동 기한이 지난 참가자를 잠수 상태로 전환하고, 새로 잠수가 된 참가자만 반환한다. */
@@ -700,6 +726,7 @@ export class ChannelService {
       likeCount,
       isGuest: false,
       isOperator: member.isOperator === true,
+      grade: resolveGrade(member.point ?? 0, member.isOperator === true),
       isLobbyChatOnly,
       x: position.x,
       y: position.y,

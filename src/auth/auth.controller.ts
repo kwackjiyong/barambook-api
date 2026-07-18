@@ -268,6 +268,7 @@ export class AuthController {
           ? new Date(member.renderCharacter.updatedAt).toISOString()
           : undefined,
       isOperator: member.isOperator === true,
+      ...this.memberService.getPointSummary(member),
       authenticated: true,
     };
   }
