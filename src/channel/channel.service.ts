@@ -48,6 +48,7 @@ export interface ChannelRenderState {
   weaponrc?: number;
   shield: number;
   shieldc: number;
+  skinc?: number;
   emotionKey?: string | null;
   emotionExpiresAt?: string | null;
   attackSequence?: number | null;

@@ -568,6 +568,7 @@ export class ChannelGateway
         typeof payload.weaponrc === 'number') &&
       typeof payload?.shield === 'number' &&
       typeof payload?.shieldc === 'number' &&
+      (payload?.skinc === undefined || typeof payload.skinc === 'number') &&
       this.isNullableString(payload?.emotionKey) &&
       this.isNullableString(payload?.emotionExpiresAt) &&
       this.isNullableNumber(payload?.attackSequence) &&
