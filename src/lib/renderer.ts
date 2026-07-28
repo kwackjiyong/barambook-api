@@ -7,9 +7,117 @@ import {
   decodeWeaponEpfItem,
 } from './epfDecoder';
 import { cyclePalette } from './paletteAnimation';
-import { RenderParams } from './types';
+import { tryLoadCharMsAssets } from './char-ms/assets';
+import type { CharMsLogicalPart } from './char-ms/format';
+import {
+  renderCharMsLayers,
+  sortCharMsLayers,
+  toCharMsAppearance,
+  type CharMsSortableLayer,
+  type LegacyPart,
+} from './char-ms/renderer';
+import { DecodedBitmap, RenderParams } from './types';
 
 type Part4 = 'head' | 'body' | 'weapon' | 'shield';
+
+/** 메월 데이터의 부위 이름 → 고전 렌더러의 부위 이름. */
+const LOGICAL_PART_BY_LEGACY_PART: Record<Part4, CharMsLogicalPart> = {
+  head: 'head',
+  body: 'armor',
+  weapon: 'weapon',
+  shield: 'shield',
+};
+
+const CLASSIC_CODE_BY_PART: Record<Part4, string> = {
+  weapon: 'w',
+  body: 'b',
+  head: 'h',
+  shield: 's',
+};
+
+const CHAR_MS_PART_ORDER: Record<Part4, number> = {
+  weapon: 1,
+  body: 2,
+  head: 3,
+  shield: 6,
+};
+
+const LEGACY_PARTS: Part4[] = ['head', 'body', 'weapon', 'shield'];
+
+/**
+ * 고전 EPF로 그리지 않아도 되는 부위. char-ms가 이미 그렸거나, 착용하지
+ * 않았거나, 얼굴+헤어 모드라 완성 머리를 쓰지 않는 경우다.
+ */
+function resolveLegacySkip(
+  params: RenderParams,
+  covered: Set<LegacyPart> | null,
+  hidden: Set<LegacyPart> | null,
+) {
+  const skip = new Set<LegacyPart>();
+
+  if (!covered) {
+    return skip;
+  }
+
+  for (const part of LEGACY_PARTS) {
+    if (covered.has(part) || hidden?.has(part)) {
+      skip.add(part);
+    }
+  }
+
+  if (params.headMode === 'face-hair') {
+    skip.add('head');
+  }
+
+  if ((params.weapon | 0) < 0) {
+    skip.add('weapon');
+  }
+
+  if ((params.shield | 0) < 0) {
+    skip.add('shield');
+  }
+
+  return skip;
+}
+
+/**
+ * 메월 레이어와 폴백 EPF 레이어를 하나의 z-order로 합친다.
+ * 폴백 부위는 같은 동작 토큰의 layer 슬롯을 물려받아 원래 자리에 들어간다.
+ */
+function mergeCharMsAndLegacy(
+  charMs: NonNullable<ReturnType<typeof renderCharMsLayers>>,
+  legacyBitmaps: Array<{ part: Part4; bitmap: DecodedBitmap }>,
+) {
+  const layers: CharMsSortableLayer[] = charMs.layers.map((layer) => ({
+    logicalPart: layer.logicalPart,
+    token: layer.token,
+    partOrder: layer.partOrder,
+    bitmap: layer.bitmap,
+  }));
+
+  for (const entry of legacyBitmaps) {
+    const slot = charMs.layerSlotByPart.get(entry.part);
+    const classicRank = charMs.classicOrder.indexOf(
+      CLASSIC_CODE_BY_PART[entry.part],
+    );
+
+    layers.push({
+      logicalPart: LOGICAL_PART_BY_LEGACY_PART[entry.part],
+      token: {
+        worldFrame: charMs.pose.tick,
+        layer:
+          slot ??
+          (classicRank >= 0 ? classicRank + 1 : CHAR_MS_PART_ORDER[entry.part]),
+      },
+      partOrder: CHAR_MS_PART_ORDER[entry.part],
+      bitmap: entry.bitmap,
+    });
+  }
+
+  return sortCharMsLayers(layers, charMs.classicOrder).map(
+    (layer) => layer.bitmap,
+  );
+}
 
 function orderFor(frame: number): Part4[] {
   const s = TBL.order[frame % TBL.order.length] || 'wbhs';
@@ -55,24 +163,47 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
     true,
   );
 
-  const bitmaps = [] as ReturnType<typeof decodeEpfItem>[];
+  const charMsAssets = await tryLoadCharMsAssets();
+  const charMs = charMsAssets
+    ? renderCharMsLayers(
+        charMsAssets,
+        toCharMsAppearance(params),
+        num,
+        colorTick,
+      )
+    : null;
+  const skip = resolveLegacySkip(
+    params,
+    charMs?.covered ?? null,
+    charMs?.hidden ?? null,
+  );
+  const legacyBitmaps: Array<{ part: Part4; bitmap: DecodedBitmap }> = [];
+  const push = (part: Part4, bitmap: DecodedBitmap) =>
+    legacyBitmaps.push({ part, bitmap });
 
   // Special front shield overlay at frames 35/47/51 -> base + (num-32)
   // 양손무기 CASE: 방패 처리
   if (
+    !skip.has('shield') &&
     params.shield >= 0 &&
     [34, 35, 36, 37, 44, 46, 47, 50, 51].includes(num)
   ) {
     const idx = rowShld._u3 + (num - 32);
-    bitmaps.push(
+    push(
+      'shield',
       decodeEpfItem(EPF.shield.items[idx], palShld, params.shieldc | 0),
     );
   }
 
   for (const part of orderFor(num)) {
+    if (skip.has(part)) {
+      continue;
+    }
+
     if (part === 'head') {
       if (num >= 0 && num <= 103) {
-        bitmaps.push(
+        push(
+          'head',
           decodeEpfItem(
             EPF.head.items[rowHead._u3 + num],
             palHead,
@@ -81,7 +212,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         );
       } else {
         const idx = Math.floor(rowHead._u3 / 5) + (num % 104);
-        bitmaps.push(
+        push(
+          'head',
           decodeEpfItem(EPF.emotion.items[idx], palHead, params.headc | 0),
         );
       }
@@ -98,7 +230,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         if (num === 122) bodyNum = 98;
         if (num === 123) bodyNum = 99;
       }
-      bitmaps.push(
+      push(
+        'body',
         decodeBodyEpfItem(
           EPF.body.items[rowBody._u3 + bodyNum],
           palBody,
@@ -119,7 +252,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         if (num >= 12 && num <= 31) {
           const idx = rowSword._u3 + (num - 12);
           // decodeEpfItem(EPF.sword.items[idx], palSword, params.weaponc | 0),
-          bitmaps.push(
+          push(
+            'weapon',
             decodeWeaponEpfItem(
               EPF.sword.items[idx],
               palSword,
@@ -144,7 +278,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         if (num >= 32 && num <= 51) {
           const idx = rowSpear._u3 + (num - 32);
           // decodeEpfItem(EPF.spear.items[idx], palSpear, params.weaponc | 0),
-          bitmaps.push(
+          push(
+            'weapon',
             decodeWeaponEpfItem(
               EPF.spear.items[idx],
               palSpear,
@@ -169,7 +304,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
         if (num >= 12 && num <= 31) {
           const idx = rowFan._u3 + (num - 13);
           // decodeEpfItem(EPF.fan.items[idx], palFan, params.weaponc | 0),
-          bitmaps.push(
+          push(
+            'weapon',
             decodeWeaponEpfItem(
               EPF.fan.items[idx],
               palFan,
@@ -186,7 +322,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       }
     } else if (part === 'shield' && params.shield >= 0) {
       if (num >= 0 && num <= 11) {
-        bitmaps.push(
+        push(
+          'shield',
           decodeEpfItem(
             EPF.shield.items[rowShld._u3 + num],
             palShld,
@@ -194,7 +331,8 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
           ),
         );
       } else if (num >= 12 && num <= 31) {
-        bitmaps.push(
+        push(
+          'shield',
           decodeEpfItem(
             EPF.shield.items[rowShld._u3 + (num - 12)],
             palShld,
@@ -210,11 +348,16 @@ export async function renderToPng(params: RenderParams): Promise<Buffer> {
       params.shield >= 0
     ) {
       const idx = rowShld._u3 + (num - 32);
-      bitmaps.push(
+      push(
+        'shield',
         decodeEpfItem(EPF.shield.items[idx], palShld, params.shieldc | 0),
       );
     }
   }
+
+  const bitmaps: DecodedBitmap[] = charMs
+    ? mergeCharMsAndLegacy(charMs, legacyBitmaps)
+    : legacyBitmaps.map((entry) => entry.bitmap);
 
   // Composite (center anchor + left/top offsets) -> RGBA -> PNG
   const out = new Uint8ClampedArray(width * height * 4);

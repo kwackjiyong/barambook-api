@@ -37,6 +37,39 @@ export class RenderCharacterRequestDto {
   @IsInt()
   shieldc: number;
 
+  @IsOptional()
+  @IsInt()
+  skinc?: number;
+
+  // 메월(char-ms) 데이터로 추가된 외형. 예전 클라이언트는 보내지 않는다.
+  @IsOptional()
+  @IsIn(['head', 'face-hair'])
+  headMode?: 'head' | 'face-hair';
+
+  @IsOptional()
+  @IsInt()
+  face?: number;
+
+  @IsOptional()
+  @IsInt()
+  hair?: number;
+
+  @IsOptional()
+  @IsInt()
+  hairc?: number;
+
+  @IsOptional()
+  @IsInt()
+  riding?: number;
+
+  @IsOptional()
+  @IsInt()
+  bodyDye?: number;
+
+  @IsOptional()
+  @IsInt()
+  weaponDye?: number;
+
   @IsInt()
   frame: number;
 

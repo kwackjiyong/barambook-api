@@ -49,6 +49,14 @@ export interface ChannelRenderState {
   shield: number;
   shieldc: number;
   skinc?: number;
+  /** 메월(char-ms) 데이터로 추가된 외형. 예전 클라이언트는 보내지 않는다. */
+  headMode?: 'head' | 'face-hair';
+  face?: number;
+  hair?: number;
+  hairc?: number;
+  riding?: number;
+  bodyDye?: number;
+  weaponDye?: number;
   emotionKey?: string | null;
   emotionExpiresAt?: string | null;
   attackSequence?: number | null;

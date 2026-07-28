@@ -569,6 +569,17 @@ export class ChannelGateway
       typeof payload?.shield === 'number' &&
       typeof payload?.shieldc === 'number' &&
       (payload?.skinc === undefined || typeof payload.skinc === 'number') &&
+      (payload?.headMode === undefined ||
+        payload.headMode === 'head' ||
+        payload.headMode === 'face-hair') &&
+      (payload?.face === undefined || typeof payload.face === 'number') &&
+      (payload?.hair === undefined || typeof payload.hair === 'number') &&
+      (payload?.hairc === undefined || typeof payload.hairc === 'number') &&
+      (payload?.riding === undefined || typeof payload.riding === 'number') &&
+      (payload?.bodyDye === undefined ||
+        typeof payload.bodyDye === 'number') &&
+      (payload?.weaponDye === undefined ||
+        typeof payload.weaponDye === 'number') &&
       this.isNullableString(payload?.emotionKey) &&
       this.isNullableString(payload?.emotionExpiresAt) &&
       this.isNullableNumber(payload?.attackSequence) &&

@@ -44,6 +44,17 @@ export interface RenderParams {
   weaponAnic?: number;
   shield: number;
   shieldc: number;
+  skinc?: number;
+  // 메월(char-ms) 데이터로 추가된 외형. -1이면 착용하지 않은 상태다.
+  headMode?: 'head' | 'face-hair';
+  face?: number;
+  hair?: number;
+  hairc?: number;
+  riding?: number;
+  /** 메월 갑옷 염색약 dyeId. 0이면 기본 컬러(bodyc). */
+  bodyDye?: number;
+  /** 메월 무기 염색약 dyeId. 0이면 기본 컬러(weaponc). */
+  weaponDye?: number;
   frame: number;
   width?: number;
   height?: number;

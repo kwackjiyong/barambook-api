@@ -68,6 +68,15 @@ export class Member extends Document {
       weaponrc?: number;
       shield: number;
       shieldc: number;
+      skinc?: number;
+      // 메월(char-ms) 데이터로 추가된 외형.
+      headMode?: 'head' | 'face-hair';
+      face?: number;
+      hair?: number;
+      hairc?: number;
+      riding?: number;
+      bodyDye?: number;
+      weaponDye?: number;
       frame: number;
       isAction: 'Y' | 'N';
     };
