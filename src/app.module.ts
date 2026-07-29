@@ -12,6 +12,7 @@ import * as dotenv from 'dotenv';
 import { MemberModule } from './member/member.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
+import { RankingModule } from './ranking/ranking.module';
 import { ChannelModule } from './channel/channel.module';
 import { TradeModule } from './trade/trade.module';
 import { NotificationModule } from './notification/notification.module';
@@ -40,6 +41,7 @@ dotenv.config();
     MemberModule,
     AuthModule,
     UserModule,
+    RankingModule,
     ChannelModule,
     TradeModule,
     NotificationModule,
