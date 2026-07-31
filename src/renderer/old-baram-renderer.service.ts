@@ -35,8 +35,8 @@ export class OldBaramRendererService implements OnModuleInit {
       slot,
       item: sheet.item,
       zoom: DYE_THUMBNAIL_ZOOM,
-      width: sheet.canvas.width * DYE_THUMBNAIL_ZOOM,
-      height: sheet.canvas.height * DYE_THUMBNAIL_ZOOM,
+      width: sheet.width,
+      height: sheet.height,
       dyes: sheet.dyes.map((dye, index) => ({
         dye,
         image: sheet.images[index].toString('base64'),

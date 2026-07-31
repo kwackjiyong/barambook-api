@@ -20,7 +20,7 @@ GET /renderer/old-baram/dyes?slot=head&head=0&body=20&weapon=-1&shield=-1&direct
 
 `slot`(`head`/`body`/`weapon`/`shield`)이 가리키는 부위의 염색을 전부
 같은 크기의 썸네일로 그려 한 응답에 담는다. 나머지 쿼리는 PNG 렌더링과 같고,
-자세는 서기, 그림자·워터마크는 꺼진 채로 고정된다.
+자세는 서기, 그림자는 꺼진 채로 고정된다.
 
 ```json
 { "slot": "head", "item": 0, "zoom": 2, "width": 38, "height": 82,
@@ -37,9 +37,11 @@ npx ts-node -T tools/build-old-baram-part-sheets.ts
 
 부위별로 모든 아이템의 기본샷을 격자 PNG 한 장에 구워 `cdn-upload/` 에 쌓고,
 S3 업로드 명령을 출력한다. 아이템이 수백 개라 API로 한 장씩 그리는 대신
-CDN에 미리 올려 두고 프론트가 칸만 잘라 쓴다. 폴더 이름에 통파일 해시가 들어가
-CloudFront 무효화 없이 새 시트로 갈아탄다. 업로드 뒤 프론트
-`src/app/old-render/partSheets.ts` 의 판 번호를 함께 바꾼다.
+CDN에 미리 올려 두고 프론트가 칸만 잘라 쓴다. 칸마다 워터마크가 함께 찍힌다.
+
+폴더 이름에는 **결과물 자체의 해시**가 들어간다(통파일이 아니라). 렌더 코드가 바뀌어
+그림이 달라져도 번호가 그대로면 immutable 로 올라간 옛 시트가 영영 남기 때문이다.
+업로드 뒤 프론트 `src/app/old-render/partSheets.ts` 의 판 번호를 함께 바꾼다.
 
 ## PNG 렌더링
 
@@ -58,10 +60,27 @@ GET /renderer/old-baram?head=0&headDye=0&body=20&bodyDye=0&weapon=1&weaponDye=0&
 | `state` | `stand` | `stand`, `move`, `attack`, `cast`, `pickup`, `eat`, `die`, `emote` |
 | `direction` | `1` | 남 `1`, 북 `2`, 서 `4`, 동 `8` |
 | `frame` | `0` | 동작 프레임 |
-| `emote` | `0` | 감정표현 번호 `0~15` |
+| `emote` | `0` | 감정표현 번호 `0~15`. 15번은 12번과 같은 그림이라 선택 목록에서는 빠진다 |
 | `colorFrame` | `0` | 색상 애니메이션 프레임 `0~7` |
 | `shadow` | `true` | 그림자 표시 여부 |
 | `zoom` | `4` | 최근접 확대 배율 `1~8` |
+
+## 속도 제한
+
+합성 한 장이 서버 CPU를 약 10ms 쓰고 프로세스가 하나뿐이라, 막지 않으면 전량 수집이
+두어 시간이면 끝나면서 그동안 서버가 통째로 눌린다. IP당 토큰 버킷으로 묶는다.
+
+| 엔드포인트 | 상시 | burst | 근거 |
+| --- | ---: | ---: | --- |
+| `/renderer/old-baram` | 초당 10회 | 30 | 정상 사용 최대치가 동작 재생(초당 5장)이라 그 두 배 |
+| `/renderer/old-baram/dyes` | 2초당 1회 | 6 | 한 번에 32장을 그려 렌더의 32배를 쓴다 |
+
+넘으면 `429` 와 `Retry-After` 를 준다.
+
+클라이언트 주소는 X-Forwarded-For의 **뒤쪽**(신뢰하는 프록시가 덧붙인 값)에서 읽는다.
+`main.ts` 가 `trust proxy` 를 켜 두어 `req.ip` 는 맨 앞 값인데 그 자리는 클라이언트가
+직접 써 보낼 수 있어, 그대로 쓰면 헤더만 바꿔 가며 제한을 피할 수 있다.
+프록시가 둘 이상 겹쳐 있으면 `TRUSTED_PROXY_HOPS` 환경 변수로 개수를 알려 준다(기본 1).
 
 같은 파라미터의 PNG는 프로세스 메모리에 최대 512개까지 캐시한다.
 통파일 위치는 기본적으로 `src/assets/dat/old-baram.obp`이며,

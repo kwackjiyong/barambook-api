@@ -24,13 +24,6 @@ import {
 const ZOOM = 2;
 /** 격자 가로 칸 수. 팝업이 어떤 폭이든 이 값으로 칸 좌표를 계산한다. */
 const COLUMNS = 12;
-const PACK_PATH = path.resolve(
-  process.cwd(),
-  'src',
-  'assets',
-  'dat',
-  'old-baram.obp',
-);
 const OUTPUT_ROOT = path.resolve(process.cwd(), 'cdn-upload');
 const S3_PREFIX = 'data/old-baram';
 
@@ -61,7 +54,6 @@ const BASE_REQUEST: OldBaramRenderRequest = {
   frame: 0,
   colorFrame: 0,
   shadow: false,
-  watermark: false,
   zoom: ZOOM,
 };
 
@@ -82,12 +74,12 @@ function requestFor(slot: OldBaramSlotKey, id: number): OldBaramRenderRequest {
 
 function buildSlot(slot: OldBaramSlotKey): { meta: SlotSheet; png: Buffer } {
   const ids = idsOf(slot);
-  const { canvas, images } = renderer.renderSheet(
-    ids.map((id) => requestFor(slot, id)),
-  );
+  const {
+    width: cellWidth,
+    height: cellHeight,
+    images,
+  } = renderer.renderSheet(ids.map((id) => requestFor(slot, id)));
 
-  const cellWidth = canvas.width * ZOOM;
-  const cellHeight = canvas.height * ZOOM;
   const rows = Math.ceil(ids.length / COLUMNS);
   const sheet = new PNG({
     width: COLUMNS * cellWidth,
@@ -125,9 +117,16 @@ function buildSlot(slot: OldBaramSlotKey): { meta: SlotSheet; png: Buffer } {
   };
 }
 
+const built = SLOT_KEYS.map((slot) => ({ slot, ...buildSlot(slot) }));
+
+/*
+ * 판 번호는 결과물 자체의 해시다.
+ * 통파일만 해시하면 렌더 코드가 바뀌어 그림이 달라져도 번호가 그대로라,
+ * immutable 로 올라간 옛 시트가 영영 그 자리에 남는다.
+ */
 const version = createHash('sha256')
-  .update(fs.readFileSync(PACK_PATH))
-  .update(`sheets:${ZOOM}:${COLUMNS}`)
+  .update(JSON.stringify(built.map((entry) => entry.meta)))
+  .update(Buffer.concat(built.map((entry) => entry.png)))
   .digest('hex')
   .slice(0, 12);
 
@@ -138,17 +137,15 @@ fs.mkdirSync(outputDir, { recursive: true });
 const slots = {} as Record<OldBaramSlotKey, SlotSheet>;
 let totalBytes = 0;
 
-for (const slot of SLOT_KEYS) {
-  const { meta, png } = buildSlot(slot);
-  fs.writeFileSync(path.join(outputDir, meta.sheet), png);
-  slots[slot] = meta;
-  totalBytes += png.byteLength;
+for (const entry of built) {
+  fs.writeFileSync(path.join(outputDir, entry.meta.sheet), entry.png);
+  slots[entry.slot] = entry.meta;
+  totalBytes += entry.png.byteLength;
 }
 
-const index = { version, zoom: ZOOM, slots };
 fs.writeFileSync(
   path.join(outputDir, 'index.json'),
-  `${JSON.stringify(index, null, 2)}\n`,
+  `${JSON.stringify({ version, zoom: ZOOM, slots }, null, 2)}\n`,
   'utf8',
 );
 

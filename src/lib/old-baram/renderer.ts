@@ -68,8 +68,6 @@ export interface OldBaramRenderRequest {
    * 그림마다 크기가 달라지면 안 되는 곳에서 쓴다. 없으면 착용 조합에 맞춰 잡는다.
    */
   canvas?: FrameWindow;
-  /** 워터마크 띠. 목록용 작은 썸네일에서만 끈다. */
-  watermark?: boolean;
 }
 
 interface NormalizedRequest {
@@ -89,7 +87,6 @@ interface NormalizedRequest {
   shadow: boolean;
   zoom: number;
   canvas: FrameWindow | null;
-  watermark: boolean;
 }
 
 /** 모든 프레임을 담을 수 있는 고정 캔버스 범위(스프라이트 앵커 기준 좌표) */
@@ -268,8 +265,24 @@ function appendWatermark(source: RgbaSurface): RgbaSurface {
   return target;
 }
 
-/** 그릴 것이 하나도 없을 때 돌려주는 빈 캔버스 */
-const EMPTY_WINDOW: FrameWindow = { left: 0, top: 0, width: 0, height: 0 };
+/**
+ * 화면에서 고를 수 있는 감정표현.
+ *
+ * 15번은 갑옷 스프라이트가 12번과 완전히 같고(원본 테이블에서 둘 다 같은 그림을 가리킨다),
+ * 둘을 갈라 줄 머리가 원본 리소스에 없다. 머리 테이블은 3264개 리소스 전부가
+ * 액션 149번까지뿐이라 감정표현 12~15 자리에는 얼굴이 아예 들어 있지 않다.
+ * 그래서 15번은 12번과 똑같이 그려지므로 목록에서 뺀다.
+ * 렌더 자체는 막지 않아 예전에 만들어진 주소는 그대로 열린다.
+ */
+const SELECTABLE_EMOTES = Array.from({ length: 15 }, (_, id) => id);
+
+/** 확대와 워터마크 띠까지 반영한 최종 PNG 크기. appendWatermark 와 같은 규칙이다. */
+function outputSizeOf(canvas: FrameWindow, zoom: number) {
+  return {
+    width: Math.max(canvas.width * zoom, WATERMARK_MIN_WIDTH),
+    height: canvas.height * zoom + WATERMARK_HEIGHT + WATERMARK_PADDING * 2,
+  };
+}
 
 function weaponOffset(partKey: 'sword' | 'spear' | 'fan'): number {
   if (partKey === 'spear') return 10000;
@@ -352,7 +365,7 @@ export class OldBaramRenderer {
       },
       states: STATES,
       directions: DIRECTIONS,
-      emotes: Array.from({ length: 16 }, (_, id) => id),
+      emotes: SELECTABLE_EMOTES,
       limits: { zoom: [1, 8], colorFrame: [0, 7] },
       /*
        * 실제 캔버스는 착용 조합에 맞춰 좁혀지므로 이 값은 상한이다.
@@ -421,8 +434,7 @@ export class OldBaramRenderer {
       );
     }
 
-    const scaled = scaleNearest(surface, params.zoom);
-    const png = encodePng(params.watermark ? appendWatermark(scaled) : scaled);
+    const png = encodePng(appendWatermark(scaleNearest(surface, params.zoom)));
     this.pngCache.set(cacheKey, png);
     if (this.pngCache.size > 512) {
       const oldest = this.pngCache.keys().next().value as string | undefined;
@@ -436,12 +448,16 @@ export class OldBaramRenderer {
    * 염색 목록이나 부위 썸네일 시트처럼 칸마다 캐릭터가 같은 자리에 서야 하는 곳에 쓴다.
    */
   renderSheet(requests: OldBaramRenderRequest[]): {
-    canvas: FrameWindow;
+    /** 워터마크 띠까지 포함한 PNG 한 장의 크기. 모든 장이 이 크기다. */
+    width: number;
+    height: number;
     images: Buffer[];
   } {
     const canvas = this.measureCanvas(requests);
+    const zoom = this.normalize(requests[0] ?? {}).zoom;
+
     return {
-      canvas,
+      ...outputSizeOf(canvas, zoom),
       images: requests.map((request) => this.render({ ...request, canvas })),
     };
   }
@@ -476,16 +492,22 @@ export class OldBaramRenderer {
   /**
    * 한 부위가 가진 염색을 전부 같은 크기의 썸네일로 그린다.
    * 염색 하나에 한 번씩 왕복하지 않도록 선택 목록을 한 응답으로 내려보내기 위한 것이라
-   * 자세는 서기로 고정하고 그림자·워터마크는 뺀다.
+   * 자세는 서기로 고정하고 그림자는 뺀다.
    */
   renderDyeSheet(
     slot: OldBaramSlotKey,
     request: OldBaramRenderRequest,
-  ): { item: number; dyes: number[]; canvas: FrameWindow; images: Buffer[] } {
+  ): {
+    item: number;
+    dyes: number[];
+    width: number;
+    height: number;
+    images: Buffer[];
+  } {
     const item = this.normalize(request)[slot];
     const dyes = item === -1 ? [] : this.dyesOf(slot, item);
     if (dyes.length === 0) {
-      return { item, dyes, canvas: EMPTY_WINDOW, images: [] };
+      return { item, dyes, width: 0, height: 0, images: [] };
     }
 
     return {
@@ -499,7 +521,6 @@ export class OldBaramRenderer {
           frame: 0,
           colorFrame: 0,
           shadow: false,
-          watermark: false,
         })),
       ),
     };
@@ -691,7 +712,6 @@ export class OldBaramRenderer {
       shadow: request.shadow ?? true,
       zoom: request.zoom ?? 4,
       canvas: request.canvas ?? null,
-      watermark: request.watermark ?? true,
     };
 
     if (!STATES.some((state) => state.key === normalized.state)) {

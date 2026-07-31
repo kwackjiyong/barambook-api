@@ -32,6 +32,9 @@ describe('OldBaramRendererService', () => {
     // 통파일에 실린 아이템 수. '없음'(-1)은 목록이 아니라 화면에서 얹는다.
     expect(options.parts.weapon).toHaveLength(219);
     expect(options.parts.shield).toHaveLength(21);
+    // 15번은 12번과 똑같이 그려져(구분해 줄 머리가 원본에 없다) 고를 수 없다.
+    expect(options.emotes).not.toContain(15);
+    expect(options.emotes).toHaveLength(15);
   });
 
   it('renders a composed character as a transparent PNG', () => {
