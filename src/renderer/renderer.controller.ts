@@ -5,16 +5,35 @@ import {
   Header,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { RendererService } from './renderer.service';
 import { OldBaramRendererService } from './old-baram-renderer.service';
+import { rateLimit } from '../common/rate-limit.guard';
 import {
   SLOT_KEYS,
   type OldBaramRenderRequest,
   type OldBaramSlotKey,
 } from '../lib/old-baram/renderer';
 import type { OldBaramState } from '../lib/old-baram/actions';
+
+/*
+ * 옛날바람 렌더 속도 제한.
+ *
+ * 합성 한 장이 서버 CPU 10ms를 쓰고 프로세스가 하나뿐이라, 막지 않으면 전량 수집이
+ * 두어 시간 만에 끝나면서 그동안 서버가 통째로 눌린다.
+ * 정상 사용의 최대치는 동작 재생(200ms 간격 = 초당 5장)이라 그 두 배를 상시 속도로 두고,
+ * 착용을 바꿀 때 프레임을 미리 받아 두는 몫은 burst 로 흡수한다.
+ */
+const RENDER_RATE_PER_SECOND = 10;
+const RENDER_BURST = 30;
+/*
+ * 염색 목록은 한 번에 32장을 그려 CPU를 350ms 쓴다(렌더의 32배).
+ * 팝업을 잇달아 열어 보는 정도는 burst 로 덮고, 상시 속도는 2초에 한 번으로 묶는다.
+ */
+const DYE_LIST_RATE_PER_SECOND = 0.5;
+const DYE_LIST_BURST = 6;
 
 /** 쿼리에 값이 없으면 기본/없음 인덱스로 둔다. */
 function toIndex(value: unknown, fallback: number) {
@@ -30,6 +49,7 @@ export class RendererController {
   ) {}
 
   @Get('/old-baram')
+  @UseGuards(rateLimit(RENDER_RATE_PER_SECOND, RENDER_BURST))
   renderOldBaram(
     @Query() query: Record<string, string | undefined>,
     @Res() res: Response,
@@ -58,6 +78,7 @@ export class RendererController {
    * 착용값은 렌더 API와 같은 쿼리를 쓰고, `slot` 이 가리키는 부위의 염색만 바뀐다.
    */
   @Get('/old-baram/dyes')
+  @UseGuards(rateLimit(DYE_LIST_RATE_PER_SECOND, DYE_LIST_BURST))
   @Header('Cache-Control', 'public, max-age=86400')
   getOldBaramDyes(@Query() query: Record<string, string | undefined>) {
     const slot = query.slot;
