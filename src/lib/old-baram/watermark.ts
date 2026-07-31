@@ -91,111 +91,107 @@ function paintedBounds(surface: StampTarget) {
   return { left, top, right, bottom };
 }
 
-/** 글자가 몸통 폭에서 차지했으면 하는 비율 */
-const TARGET_WIDTH_RATIO = 0.9;
-/** 글자를 올릴 높이. 0이 정수리, 1이 발끝. 옷자락처럼 넓은 자리를 고른다. */
-const VERTICAL_ANCHOR = 0.72;
-/**
- * 밝은 화소는 이만큼 어둡게, 어두운 화소는 그 역수만큼 밝게.
- * 그림을 해치지 않는 쪽을 택한 값이라 눈에 잘 띄지 않는다.
- * 더 또렷하게 남기고 싶으면 낮추면 된다(0.40이면 확대율 4 이상에서 도메인이 읽힌다).
- */
-const TINT_FACTOR = 0.7;
-/** 어둡게 할지 밝게 할지 가르는 밝기 */
-const LUMA_PIVOT = 96;
+/** 글자가 그림 폭에서 차지하는 비율. 확대율이 바뀌어도 이 비율은 그대로다. */
+const TARGET_WIDTH_RATIO = 0.62;
+/** 글자 아래를 그림 바닥에서 얼마나 띄울지(글자 높이 대비) */
+const BOTTOM_MARGIN_RATIO = 0.4;
 
-/**
- * 한 줄에서 화소가 끊기지 않고 이어지는 가장 긴 구간.
- *
- * 바운딩 박스 폭을 쓰면 무기·방패까지 들어가 실제 몸통보다 훨씬 넓게 잡히고,
- * 그 폭에 맞춰 글자를 키우면 대부분이 빈 곳에 떨어져 조각만 남는다.
- * 글자를 얹을 자리는 옷자락처럼 꽉 찬 구간이어야 한다.
- */
-function widestRun(surface: StampTarget, row: number) {
-  let best = { left: 0, width: 0 };
-  let start = -1;
+const INK: [number, number, number] = [24, 26, 24];
+const HALO: [number, number, number] = [255, 252, 244];
+const INK_ALPHA = 205;
+const HALO_ALPHA = 150;
 
-  for (let x = 0; x <= surface.width; x += 1) {
-    const solid =
-      x < surface.width && surface.rgba[(row * surface.width + x) * 4 + 3] > 0;
-    if (solid) {
-      if (start < 0) start = x;
-      continue;
-    }
-    if (start >= 0) {
-      if (x - start > best.width) best = { left: start, width: x - start };
-      start = -1;
-    }
-  }
-
-  return best;
-}
-
-/** 폭에 들어가는 가장 긴 표기. 좁을수록 짧게 줄인다. */
-function textFor(width: number): string {
-  if (watermarkWidthOf(WATERMARK_TEXT) <= width) return WATERMARK_TEXT;
-  if (watermarkWidthOf(WATERMARK_SHORT_TEXT) <= width)
-    return WATERMARK_SHORT_TEXT;
-  return WATERMARK_MARK_TEXT;
-}
-
-/**
- * 화소 하나를 자기 색 기준으로 물들인다.
- *
- * 먹색 글자를 얹으면 그림 위에 붙인 스티커처럼 보인다. 대신 밑에 깔린 색을
- * 어둡게(어두운 색이면 밝게) 밀어서, 그림이 원래 가진 색조를 그대로 따라가게 한다.
- * 비어 있는 화소는 건드리지 않는다 - 그래야 글자가 캐릭터 안에만 남아 잘라낼 수 없다.
- */
-function tintPixel(surface: StampTarget, x: number, y: number): void {
+function paint(
+  surface: StampTarget,
+  x: number,
+  y: number,
+  color: [number, number, number],
+  alpha: number,
+): void {
   if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
   const offset = (y * surface.width + x) * 4;
-  if (surface.rgba[offset + 3] === 0) return;
+  const source = alpha / 255;
+  const behind = (surface.rgba[offset + 3] / 255) * (1 - source);
+  const total = source + behind;
+  if (total <= 0) return;
 
-  const red = surface.rgba[offset];
-  const green = surface.rgba[offset + 1];
-  const blue = surface.rgba[offset + 2];
-  const luma = 0.299 * red + 0.587 * green + 0.114 * blue;
-  const factor = luma > LUMA_PIVOT ? TINT_FACTOR : 1 / TINT_FACTOR;
-
-  surface.rgba[offset] = red * factor;
-  surface.rgba[offset + 1] = green * factor;
-  surface.rgba[offset + 2] = blue * factor;
+  for (let channel = 0; channel < 3; channel += 1) {
+    surface.rgba[offset + channel] =
+      (color[channel] * source + surface.rgba[offset + channel] * behind) /
+      total;
+  }
+  surface.rgba[offset + 3] = total * 255;
 }
 
 /**
- * 확대가 끝난 그림 위에 출처를 겹쳐 찍는다.
+ * 확대가 끝난 그림 아래쪽에 출처를 찍는다.
  *
- * 글자 크기를 캐릭터 크기에 맞춰 키운다. 확대율과 무관하게 1픽셀로 찍으면
- * 확대율 1과 8 사이에서 상대 크기가 여덟 배 벌어져, 어떤 때는 좁쌀만 하고
- * 어떤 때는 화면을 덮는다.
+ * 글자 크기는 **그림 폭의 일정 비율**로 잡는다. 확대율과 무관하게 1픽셀로 찍거나
+ * 정수 배율로만 키우면 확대율이 바뀔 때마다 크기가 튀어, 어떤 때는 좁쌀만 하고
+ * 어떤 때는 유난히 크다. 배율을 소수로 두고 글자 칸을 사각형으로 채워
+ * 어느 확대율에서나 같은 비율로 보이게 한다.
  *
- * 자리는 캔버스 바닥이 아니라 **그려진 화소** 기준으로 잡는다. 캔버스는 모든 자세를
- * 담느라 여백이 넓어서, 바닥에 맞추면 빈 곳에 놓여 아래 몇 줄만 잘라내면 그만이다.
+ * 자리는 캔버스 바닥이 아니라 **그려진 화소**의 바닥에 맞춘다. 캔버스는 모든 자세를
+ * 담느라 여백이 넓어서, 바닥에 맞추면 캐릭터에서 한참 떨어진 빈 곳에 놓인다.
  */
 export function stampWatermark(surface: StampTarget): void {
   const painted = paintedBounds(surface);
   if (!painted) return;
 
-  const paintedHeight = painted.bottom - painted.top + 1;
-  const anchorRow = Math.round(painted.top + paintedHeight * VERTICAL_ANCHOR);
-  const run = widestRun(surface, anchorRow);
-  if (run.width === 0) return;
-
-  const room = run.width * TARGET_WIDTH_RATIO;
-  const text = textFor(room);
+  /*
+   * 글자 칸이 1픽셀보다 작아지면 획이 통째로 사라져 뭉갠 자국만 남는다.
+   * 그럴 만큼 좁은 그림(부위 목록 썸네일 등)에서는 표기를 줄여 읽히게 둔다.
+   */
+  const room = surface.width * TARGET_WIDTH_RATIO;
+  const text =
+    [WATERMARK_TEXT, WATERMARK_SHORT_TEXT, WATERMARK_MARK_TEXT].find(
+      (candidate) => watermarkWidthOf(candidate) <= room,
+    ) ?? WATERMARK_MARK_TEXT;
   const baseWidth = watermarkWidthOf(text);
-  const scale = Math.max(1, Math.floor(room / baseWidth));
 
-  const width = baseWidth * scale;
+  const scale = room / baseWidth;
   const height = GLYPH_HEIGHT * scale;
-  const left = Math.round(run.left + (run.width - width) / 2);
-  const top = Math.round(anchorRow - height / 2);
+  const left = (surface.width - baseWidth * scale) / 2;
+  const top = Math.min(
+    painted.bottom - height * BOTTOM_MARGIN_RATIO,
+    surface.height - height,
+  );
 
+  // 글자 칸 하나를 사각형으로 채운다. 소수 배율에서도 틈이 생기지 않는다.
+  const cells: Array<[number, number, number, number]> = [];
   for (const [px, py] of glyphPoints(text, 0, 0)) {
-    for (let dy = 0; dy < scale; dy += 1) {
-      for (let dx = 0; dx < scale; dx += 1) {
-        tintPixel(surface, left + px * scale + dx, top + py * scale + dy);
+    const x0 = Math.round(left + px * scale);
+    const x1 = Math.round(left + (px + 1) * scale);
+    const y0 = Math.round(top + py * scale);
+    const y1 = Math.round(top + (py + 1) * scale);
+    cells.push([x0, y0, x1, y1]);
+  }
+
+  const filled = new Set<string>();
+  for (const [x0, y0, x1, y1] of cells) {
+    for (let y = y0; y < y1; y += 1) {
+      for (let x = x0; x < x1; x += 1) filled.add(`${x}:${y}`);
+    }
+  }
+
+  // 밝은 배경과 어두운 배경 어디에 올려도 읽히도록 글자 뒤에 후광을 깐다.
+  const halo = new Set<string>();
+  for (const key of filled) {
+    const [x, y] = key.split(':').map(Number);
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const around = `${x + dx}:${y + dy}`;
+        if (!filled.has(around)) halo.add(around);
       }
     }
+  }
+
+  for (const key of halo) {
+    const [x, y] = key.split(':').map(Number);
+    paint(surface, x, y, HALO, HALO_ALPHA);
+  }
+  for (const key of filled) {
+    const [x, y] = key.split(':').map(Number);
+    paint(surface, x, y, INK, INK_ALPHA);
   }
 }

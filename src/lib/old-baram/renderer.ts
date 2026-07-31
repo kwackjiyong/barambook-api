@@ -235,6 +235,13 @@ function measureFrameWindow(images: EpfImage[]): FrameWindow {
 }
 
 /**
+ * 확대 상한.
+ * 의상실이 미리보기 높이를 340px로 묶어 두어 이보다 키워도 화면에서는 다시 줄어든다.
+ * 보이지도 않는 큰 그림을 만들 이유가 없다.
+ */
+const MAX_ZOOM = 4;
+
+/**
  * 화면에서 고를 수 있는 감정표현.
  *
  * 15번은 갑옷 스프라이트가 12번과 완전히 같고(원본 테이블에서 둘 다 같은 그림을 가리킨다),
@@ -332,7 +339,7 @@ export class OldBaramRenderer {
       states: STATES,
       directions: DIRECTIONS,
       emotes: SELECTABLE_EMOTES,
-      limits: { zoom: [1, 8], colorFrame: [0, 7] },
+      limits: { zoom: [1, MAX_ZOOM], colorFrame: [0, 7] },
       /*
        * 실제 캔버스는 착용 조합에 맞춰 좁혀지므로 이 값은 상한이다.
        * PNG 최대 크기는 (width * zoom) x (height * zoom).
@@ -495,7 +502,6 @@ export class OldBaramRenderer {
 
   /** 부위 한 칸이 지원하는 염색 번호. 없는 아이템이면 빈 배열. */
   dyesOf(slot: OldBaramSlotKey, itemId: number): number[] {
-    const pack = this.requirePack();
     if (slot === 'weapon') {
       const partKey = weaponPartOf(itemId);
       if (!partKey) return [];
@@ -716,8 +722,8 @@ export class OldBaramRenderer {
     if (normalized.colorFrame < 0 || normalized.colorFrame > 7) {
       throw new RangeError('colorFrame은 0~7이어야 합니다.');
     }
-    if (normalized.zoom < 1 || normalized.zoom > 8) {
-      throw new RangeError('zoom은 1~8이어야 합니다.');
+    if (normalized.zoom < 1 || normalized.zoom > MAX_ZOOM) {
+      throw new RangeError(`zoom은 1~${MAX_ZOOM}이어야 합니다.`);
     }
 
     this.assertItem('head', normalized.head, normalized.headDye);

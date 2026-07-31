@@ -1,12 +1,15 @@
 import { stampWatermark } from './watermark';
 
 /** 캐릭터 대신 쓰는 네모. 가운데에만 화소가 차 있고 둘레는 비어 있다. */
-function surfaceWith(
-  width: number,
-  height: number,
-  body: { left: number; top: number; right: number; bottom: number },
-) {
+function surfaceWith(width: number, height: number) {
   const rgba = new Uint8ClampedArray(width * height * 4);
+  const body = {
+    left: Math.round(width * 0.35),
+    right: Math.round(width * 0.65),
+    top: Math.round(height * 0.1),
+    bottom: Math.round(height * 0.75),
+  };
+
   for (let y = body.top; y <= body.bottom; y += 1) {
     for (let x = body.left; x <= body.right; x += 1) {
       const offset = (y * width + x) * 4;
@@ -16,100 +19,77 @@ function surfaceWith(
       rgba[offset + 3] = 255;
     }
   }
+
   return {
     width,
     height,
     rgba,
+    body,
     setPixel() {
-      throw new Error('워터마크는 화소를 직접 물들여야 한다');
+      throw new Error('워터마크는 화소를 직접 칠해야 한다');
     },
   };
 }
 
-const BODY = { left: 30, top: 20, right: 89, bottom: 119 };
+/** 워터마크가 건드린 화소의 범위 */
+function markBounds(width: number, height: number) {
+  const surface = surfaceWith(width, height);
+  const before = Uint8ClampedArray.from(surface.rgba);
+  stampWatermark(surface);
+
+  let left = width;
+  let right = -1;
+  let top = height;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const same =
+        surface.rgba[offset] === before[offset] &&
+        surface.rgba[offset + 3] === before[offset + 3];
+      if (same) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+
+  return { left, right, top, bottom, body: surface.body };
+}
 
 describe('stampWatermark', () => {
-  /*
-   * 그림 아래 띠로 붙이면 몇 줄만 잘라내면 원본이 그대로 남는다.
-   * 글자가 그려진 화소 안에만 들어가야 잘라낼 수 없다.
-   */
-  it('never paints outside the character', () => {
-    const surface = surfaceWith(120, 160, BODY);
-    const before = Uint8ClampedArray.from(surface.rgba);
-
-    stampWatermark(surface);
-
-    for (let y = 0; y < surface.height; y += 1) {
-      for (let x = 0; x < surface.width; x += 1) {
-        const offset = (y * surface.width + x) * 4;
-        const inside =
-          x >= BODY.left &&
-          x <= BODY.right &&
-          y >= BODY.top &&
-          y <= BODY.bottom;
-        if (inside) continue;
-        expect(surface.rgba[offset + 3]).toBe(before[offset + 3]);
-        expect(surface.rgba[offset]).toBe(before[offset]);
-      }
-    }
-  });
-
-  it('leaves every alpha value alone so the silhouette does not change', () => {
-    const surface = surfaceWith(120, 160, BODY);
-    const before = Uint8ClampedArray.from(surface.rgba);
-
-    stampWatermark(surface);
-
-    for (let offset = 3; offset < surface.rgba.length; offset += 4) {
-      expect(surface.rgba[offset]).toBe(before[offset]);
-    }
-  });
-
-  it('actually marks the character', () => {
-    const surface = surfaceWith(120, 160, BODY);
-    const before = Uint8ClampedArray.from(surface.rgba);
-
-    stampWatermark(surface);
-
-    let changed = 0;
-    for (let offset = 0; offset < surface.rgba.length; offset += 4) {
-      if (surface.rgba[offset] !== before[offset]) changed += 1;
-    }
-    expect(changed).toBeGreaterThan(20);
+  it('marks the image', () => {
+    const mark = markBounds(200, 260);
+    expect(mark.right).toBeGreaterThan(mark.left);
+    expect(mark.bottom).toBeGreaterThan(mark.top);
   });
 
   /*
-   * 확대가 끝난 그림에 1픽셀 크기로 찍으면 확대율 1과 8 사이에서 글자가
-   * 여덟 배 차이 난다. 몸통 폭을 따라가야 어느 확대율에서나 비슷하게 보인다.
+   * 확대가 끝난 그림에 1픽셀 크기로 찍거나 정수 배율로만 키우면 확대율이 바뀔 때마다
+   * 글자 크기가 튄다. 그림 폭의 일정 비율이어야 어느 확대율에서나 같아 보인다.
    */
-  it('keeps the mark the same share of the body at any scale', () => {
-    const shareAt = (zoom: number) => {
-      const body = {
-        left: 30 * zoom,
-        top: 20 * zoom,
-        right: 30 * zoom + 60 * zoom - 1,
-        bottom: 20 * zoom + 100 * zoom - 1,
-      };
-      const surface = surfaceWith(120 * zoom, 160 * zoom, body);
-      stampWatermark(surface);
+  it('keeps the mark the same share of the image at every scale', () => {
+    const shares = [80, 160, 240, 320].map((width) => {
+      const mark = markBounds(width, Math.round(width * 1.3));
+      return (mark.right - mark.left + 1) / width;
+    });
 
-      // 몸통 안에서 색이 밀린 화소만 센다. 바깥은 원래 비어 있어 비교 대상이 아니다.
-      let left = surface.width;
-      let right = -1;
-      for (let y = body.top; y <= body.bottom; y += 1) {
-        for (let x = body.left; x <= body.right; x += 1) {
-          if (surface.rgba[(y * surface.width + x) * 4] === 120) continue;
-          if (x < left) left = x;
-          if (x > right) right = x;
-        }
-      }
-      return (right - left + 1) / (60 * zoom);
-    };
-
-    const shares = [1, 2, 4, 8].map(shareAt);
     for (const share of shares) {
-      expect(share).toBeGreaterThan(0.45);
-      expect(share).toBeLessThanOrEqual(0.95);
+      expect(share).toBeGreaterThan(0.55);
+      expect(share).toBeLessThan(0.75);
     }
+    // 확대율이 달라져도 서로 거의 같아야 한다.
+    expect(Math.max(...shares) - Math.min(...shares)).toBeLessThan(0.08);
+  });
+
+  it('sits at the bottom, near the feet rather than the empty canvas floor', () => {
+    const mark = markBounds(200, 260);
+    const middle = (mark.body.top + mark.body.bottom) / 2;
+
+    expect(mark.top).toBeGreaterThan(middle);
+    // 캔버스 바닥이 아니라 그려진 화소 바닥에 붙는다.
+    expect(mark.bottom).toBeLessThan(260 - 1);
   });
 });
