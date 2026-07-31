@@ -38,7 +38,7 @@ export function watermarkWidthOf(text: string): number {
 export const WATERMARK_WIDTH = watermarkWidthOf(WATERMARK_TEXT);
 export const WATERMARK_HEIGHT = GLYPH_HEIGHT;
 /** 글자 둘레로 후광 1픽셀 + 여백 1픽셀 */
-export const WATERMARK_PADDING = 2;
+export const WATERMARK_PADDING = 1;
 
 function glyphPoints(
   text: string,
@@ -94,7 +94,7 @@ function paintedBounds(surface: StampTarget) {
 /** 글자가 그림 폭에서 차지하는 비율. 확대율이 바뀌어도 이 비율은 그대로다. */
 const TARGET_WIDTH_RATIO = 0.82;
 /** 세로로 몇 줄 반복할지. 한 줄만 있으면 그 줄만 지워도 표시가 사라진다. */
-const LINE_COUNT = 4;
+const LINE_COUNT = 1;
 
 /**
  * 의상실이 캐릭터를 올려 두는 바탕색(`#efe8d9`).
@@ -107,7 +107,7 @@ const LINE_COUNT = 4;
  */
 const INK: [number, number, number] = [0xef, 0xe8, 0xd9];
 /** 진하기. 낮출수록 연하다. */
-const INK_ALPHA = 55;
+const INK_ALPHA = 46;
 
 /**
  * 캐릭터 **뒤에** 불투명한 글자를 깐다.
