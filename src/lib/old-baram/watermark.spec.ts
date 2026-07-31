@@ -31,8 +31,8 @@ function surfaceWith(width: number, height: number) {
   };
 }
 
-/** 워터마크가 건드린 화소의 범위 */
-function markBounds(width: number, height: number) {
+/** 워터마크가 건드린 화소를 모아 본다. */
+function stampAndDiff(width: number, height: number) {
   const surface = surfaceWith(width, height);
   const before = Uint8ClampedArray.from(surface.rgba);
   stampWatermark(surface);
@@ -41,14 +41,19 @@ function markBounds(width: number, height: number) {
   let right = -1;
   let top = height;
   let bottom = -1;
+  let onCharacter = 0;
+  let onEmpty = 0;
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const offset = (y * width + x) * 4;
-      const same =
-        surface.rgba[offset] === before[offset] &&
-        surface.rgba[offset + 3] === before[offset + 3];
-      if (same) continue;
+      const changed =
+        surface.rgba[offset] !== before[offset] ||
+        surface.rgba[offset + 3] !== before[offset + 3];
+      if (!changed) continue;
+
+      if (before[offset + 3] === 0) onEmpty += 1;
+      else onCharacter += 1;
       if (x < left) left = x;
       if (x > right) right = x;
       if (y < top) top = y;
@@ -56,12 +61,12 @@ function markBounds(width: number, height: number) {
     }
   }
 
-  return { left, right, top, bottom, body: surface.body };
+  return { surface, before, left, right, top, bottom, onCharacter, onEmpty };
 }
 
 describe('stampWatermark', () => {
   it('marks the image', () => {
-    const mark = markBounds(200, 260);
+    const mark = stampAndDiff(200, 260);
     expect(mark.right).toBeGreaterThan(mark.left);
     expect(mark.bottom).toBeGreaterThan(mark.top);
   });
@@ -72,63 +77,44 @@ describe('stampWatermark', () => {
    */
   it('keeps the mark the same share of the image at every scale', () => {
     const shares = [80, 160, 240, 320].map((width) => {
-      const mark = markBounds(width, Math.round(width * 1.3));
+      const mark = stampAndDiff(width, Math.round(width * 1.3));
       return (mark.right - mark.left + 1) / width;
     });
 
     for (const share of shares) {
-      expect(share).toBeGreaterThan(0.55);
-      expect(share).toBeLessThan(0.75);
+      expect(share).toBeGreaterThan(0.7);
+      expect(share).toBeLessThan(0.95);
     }
-    // 확대율이 달라져도 서로 거의 같아야 한다.
     expect(Math.max(...shares) - Math.min(...shares)).toBeLessThan(0.08);
   });
 
   /*
-   * 화면에서는 무대 바탕에 묻히고 내려받으면 드러나야 한다.
-   * 빈 여백은 바탕색으로 채우고, 캐릭터와 겹치는 자리는 밑색을 살짝 미는 것으로 끝낸다.
-   * 캐릭터를 아예 비켜 가면 아래 몇 줄만 잘라내도 표시가 사라진다.
+   * 캐릭터를 비켜 여백에만 찍으면 캐릭터 경계에 맞춰 잘라내는 것만으로 표시가 날아간다.
+   * 글자가 캐릭터를 가로질러야 한다.
    */
-  it('fills empty space with the stage colour and only tints the character', () => {
-    const surface = surfaceWith(200, 260);
-    const before = Uint8ClampedArray.from(surface.rgba);
-    stampWatermark(surface);
-
-    let filledEmpty = 0;
-    let tintedBody = 0;
-
-    for (let offset = 0; offset < surface.rgba.length; offset += 4) {
-      const wasEmpty = before[offset + 3] === 0;
-      const changed =
-        surface.rgba[offset] !== before[offset] ||
-        surface.rgba[offset + 3] !== before[offset + 3];
-      if (!changed) continue;
-
-      if (wasEmpty) {
-        expect([
-          surface.rgba[offset],
-          surface.rgba[offset + 1],
-          surface.rgba[offset + 2],
-          surface.rgba[offset + 3],
-        ]).toEqual([0xef, 0xe8, 0xd9, 255]);
-        filledEmpty += 1;
-      } else {
-        // 캐릭터 위에서는 불투명도를 건드리지 않는다. 실루엣이 바뀌면 안 된다.
-        expect(surface.rgba[offset + 3]).toBe(before[offset + 3]);
-        tintedBody += 1;
-      }
-    }
-
-    expect(filledEmpty).toBeGreaterThan(0);
-    expect(tintedBody).toBeGreaterThan(0);
+  it('crosses the character so it cannot be cropped away', () => {
+    const mark = stampAndDiff(200, 260);
+    expect(mark.onCharacter).toBeGreaterThan(20);
   });
 
-  it('sits at the bottom, near the feet rather than the empty canvas floor', () => {
-    const mark = markBounds(200, 260);
-    const middle = (mark.body.top + mark.body.bottom) / 2;
+  /*
+   * 빈 곳에 얹힌 글자는 무대 바탕색이라 화면에서는 묻히고,
+   * 내려받아 다른 바탕에 올리면 드러난다.
+   */
+  it('melts into the stage colour where the canvas is empty', () => {
+    const mark = stampAndDiff(200, 260);
+    expect(mark.onEmpty).toBeGreaterThan(20);
 
-    expect(mark.top).toBeGreaterThan(middle);
-    // 캔버스 바닥이 아니라 그려진 화소 바닥에 붙는다.
-    expect(mark.bottom).toBeLessThan(260 - 1);
+    for (let offset = 0; offset < mark.surface.rgba.length; offset += 4) {
+      if (mark.before[offset + 3] !== 0) continue;
+      if (mark.surface.rgba[offset + 3] === 0) continue;
+      expect([
+        mark.surface.rgba[offset],
+        mark.surface.rgba[offset + 1],
+        mark.surface.rgba[offset + 2],
+      ]).toEqual([0xef, 0xe8, 0xd9]);
+      // 반투명이어야 바탕 위에서 자연스럽게 녹아든다.
+      expect(mark.surface.rgba[offset + 3]).toBeLessThan(128);
+    }
   });
 });

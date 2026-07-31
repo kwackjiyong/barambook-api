@@ -92,62 +92,44 @@ function paintedBounds(surface: StampTarget) {
 }
 
 /** 글자가 그림 폭에서 차지하는 비율. 확대율이 바뀌어도 이 비율은 그대로다. */
-const TARGET_WIDTH_RATIO = 0.62;
+const TARGET_WIDTH_RATIO = 0.82;
 
 /**
  * 의상실이 캐릭터를 올려 두는 바탕색(`#efe8d9`).
  *
- * 이 색으로 **빈 여백에만** 찍으면 화면에서는 바탕에 묻혀 보이지 않고,
- * 저장해서 다른 바탕에 올리는 순간 드러난다.
- * 프론트에서 무대·부위 썸네일·목록 타일이 모두 같은 색을 쓰므로 한 값이면 된다.
+ * 이 색을 낮은 알파로 얹으면 캐릭터 위에서는 은은하게 밝아지고,
+ * 빈 여백에서는 무대 바탕에 녹아들어 화면에서 잘 드러나지 않는다.
+ * 내려받아 다른 바탕에 올리면 그대로 보인다.
+ * 프론트에서 무대·부위 썸네일·목록 타일이 모두 같은 색을 쓴다.
  * (`src/app/old-render/components/OldDressRoom.module.css`)
  */
-const STAGE_BACKGROUND: [number, number, number] = [0xef, 0xe8, 0xd9];
+const INK: [number, number, number] = [0xef, 0xe8, 0xd9];
+/** 진하기. 낮출수록 연하다. */
+const INK_ALPHA = 46;
 
-/** 캐릭터 위에 겹친 부분의 진하기. 1에 가까울수록 연하다. */
-const TINT_FACTOR = 0.82;
-/** 어둡게 밀지 밝게 밀지 가르는 밝기 */
-const LUMA_PIVOT = 96;
-
-/**
- * 글자 한 화소를 찍는다. 밑에 무엇이 깔렸는지에 따라 두 갈래로 나뉜다.
- *
- * - **빈 여백**: 무대 바탕색으로 채운다. 의상실에서는 바탕에 묻혀 안 보이고,
- *   내려받아 다른 바탕에 올리면 드러난다.
- * - **캐릭터 위**: 밑색을 살짝 밀어 물들인다. 바탕색으로 덮으면 화면에서 그대로 보인다.
- *   그렇다고 캐릭터를 비켜 가면 아래 여백만 잘라내도 표시가 사라져,
- *   겹쳐 찍는 원래 목적이 없어진다.
- */
+/** 밑에 무엇이 깔렸든 같은 색을 같은 알파로 얹는다. */
 function markPixel(surface: StampTarget, x: number, y: number): void {
   if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
   const offset = (y * surface.width + x) * 4;
 
-  if (surface.rgba[offset + 3] === 0) {
-    surface.rgba[offset] = STAGE_BACKGROUND[0];
-    surface.rgba[offset + 1] = STAGE_BACKGROUND[1];
-    surface.rgba[offset + 2] = STAGE_BACKGROUND[2];
-    surface.rgba[offset + 3] = 255;
-    return;
+  const source = INK_ALPHA / 255;
+  const behind = (surface.rgba[offset + 3] / 255) * (1 - source);
+  const total = source + behind;
+  if (total <= 0) return;
+
+  for (let channel = 0; channel < 3; channel += 1) {
+    surface.rgba[offset + channel] =
+      (INK[channel] * source + surface.rgba[offset + channel] * behind) / total;
   }
-
-  const red = surface.rgba[offset];
-  const green = surface.rgba[offset + 1];
-  const blue = surface.rgba[offset + 2];
-  const luma = 0.299 * red + 0.587 * green + 0.114 * blue;
-  const factor = luma > LUMA_PIVOT ? TINT_FACTOR : 1 / TINT_FACTOR;
-
-  surface.rgba[offset] = red * factor;
-  surface.rgba[offset + 1] = green * factor;
-  surface.rgba[offset + 2] = blue * factor;
+  surface.rgba[offset + 3] = total * 255;
 }
 
 /**
- * 캐릭터 아래쪽에 걸쳐 출처를 찍는다.
+ * 그림 한가운데에 출처를 크게 얹는다.
  *
- * 의상실 화면에서는 거의 드러나지 않고 내려받아 다른 바탕에 올리면 보인다.
- * 빈 여백은 무대 바탕색으로 채워 화면에서 묻히게 하고, 캐릭터와 겹치는 부분만
- * 밑색을 살짝 밀어 물들인다. 캐릭터를 아예 비켜 가면 아래 몇 줄만 잘라내도
- * 표시가 사라져, 겹쳐 찍는 원래 목적이 없어진다.
+ * 무대 바탕색을 낮은 알파로 깔아, 캐릭터 위에서는 은은하게 밝아지고
+ * 빈 여백에서는 바탕에 녹아든다. 화면에서는 눈에 잘 안 띄지만 내려받아
+ * 다른 바탕에 올리면 드러난다. 캐릭터를 가로질러 지나가므로 잘라낼 수 없다.
  *
  * 글자 크기는 **그림 폭의 일정 비율**로 잡는다. 확대율과 무관하게 1픽셀로 찍거나
  * 정수 배율로만 키우면 확대율이 바뀔 때마다 크기가 튀어, 어떤 때는 좁쌀만 하고
@@ -171,9 +153,9 @@ export function stampWatermark(surface: StampTarget): void {
 
   const scale = room / baseWidth;
   const height = GLYPH_HEIGHT * scale;
+  // 그림 한가운데. 세로는 캐릭터가 그려진 범위의 가운데에 맞춘다.
   const left = (surface.width - baseWidth * scale) / 2;
-  // 캐릭터 아래쪽에 걸치게 둔다. 여백으로 내리면 그 줄만 잘라내도 표시가 사라진다.
-  const top = painted.bottom - height + 1;
+  const top = (painted.top + painted.bottom + 1 - height) / 2;
 
   // 글자 칸 하나를 사각형으로 채운다. 소수 배율에서도 틈이 생기지 않는다.
   const cells: Array<[number, number, number, number]> = [];
