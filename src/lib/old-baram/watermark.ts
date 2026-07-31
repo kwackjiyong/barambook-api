@@ -98,8 +98,9 @@ const BOTTOM_MARGIN_RATIO = 0.4;
 
 const INK: [number, number, number] = [24, 26, 24];
 const HALO: [number, number, number] = [255, 252, 244];
-const INK_ALPHA = 205;
-const HALO_ALPHA = 150;
+/** 진하기. 낮출수록 그림에 묻힌다. */
+const INK_ALPHA = 165;
+const HALO_ALPHA = 115;
 
 function paint(
   surface: StampTarget,
