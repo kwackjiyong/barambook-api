@@ -2,8 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PNG } from 'pngjs';
 import {
+  ACTION_ALIASES,
   DIRECTIONS,
   DRAW_ORDERS,
+  MOVE_POSES,
   PART_BODY,
   PART_HEAD,
   PART_SHIELD,
@@ -41,6 +43,10 @@ import {
 const PART_KEYS = ['head', 'body', 'sword', 'shield', 'spear', 'fan'] as const;
 type PartKey = (typeof PART_KEYS)[number];
 
+/** 선택 목록에서 부위를 고를 때 쓰는 이름. 무기는 검·창·부채를 한 칸으로 묶는다. */
+export const SLOT_KEYS = ['head', 'body', 'weapon', 'shield'] as const;
+export type OldBaramSlotKey = (typeof SLOT_KEYS)[number];
+
 export interface OldBaramRenderRequest {
   head?: number;
   headDye?: number;
@@ -57,6 +63,13 @@ export interface OldBaramRenderRequest {
   colorFrame?: number;
   shadow?: boolean;
   zoom?: number;
+  /**
+   * 캔버스를 이 범위로 고정한다. 여러 조합을 한 판에 늘어놓는 썸네일 시트처럼
+   * 그림마다 크기가 달라지면 안 되는 곳에서 쓴다. 없으면 착용 조합에 맞춰 잡는다.
+   */
+  canvas?: FrameWindow;
+  /** 워터마크 띠. 목록용 작은 썸네일에서만 끈다. */
+  watermark?: boolean;
 }
 
 interface NormalizedRequest {
@@ -75,10 +88,12 @@ interface NormalizedRequest {
   colorFrame: number;
   shadow: boolean;
   zoom: number;
+  canvas: FrameWindow | null;
+  watermark: boolean;
 }
 
 /** 모든 프레임을 담을 수 있는 고정 캔버스 범위(스프라이트 앵커 기준 좌표) */
-interface FrameWindow {
+export interface FrameWindow {
   left: number;
   top: number;
   width: number;
@@ -170,7 +185,7 @@ function findPackPath(): string {
 }
 
 function frameCountFor(state: OldBaramState, emote: number): number {
-  if (state === 'move') return 3;
+  if (state === 'move') return MOVE_POSES.length;
   if (state === 'attack') return 2;
   if (state === 'emote' && emote === 11) return 4;
   return 1;
@@ -252,6 +267,9 @@ function appendWatermark(source: RgbaSurface): RgbaSurface {
 
   return target;
 }
+
+/** 그릴 것이 하나도 없을 때 돌려주는 빈 캔버스 */
+const EMPTY_WINDOW: FrameWindow = { left: 0, top: 0, width: 0, height: 0 };
 
 function weaponOffset(partKey: 'sword' | 'spear' | 'fan'): number {
   if (partKey === 'spear') return 10000;
@@ -356,73 +374,7 @@ export class OldBaramRenderer {
     const cached = this.pngCache.get(cacheKey);
     if (cached) return cached;
 
-    const actionId = resolveActionId({
-      state: params.state,
-      weaponType: weaponTypeOf(params.weapon),
-      direction: params.direction,
-      frame:
-        params.frame % frameCountFor(params.state, params.emote),
-      emote: params.emote,
-    });
-    if (actionId === undefined) {
-      throw new RangeError('해당 조합의 동작 프레임이 없습니다.');
-    }
-
-    const resources: Record<number, PartResource | null> = {
-      [PART_HEAD]: this.partResource(
-        'head',
-        params.head,
-        params.headDye,
-      ),
-      [PART_BODY]: this.partResource(
-        'body',
-        params.body,
-        params.bodyDye,
-      ),
-      [PART_WEAPON]: this.weaponResource(
-        params.weapon,
-        params.weaponDye,
-      ),
-      [PART_SHIELD]:
-        params.shield === -1
-          ? null
-          : this.partResource(
-              'shield',
-              params.shield,
-              params.shieldDye,
-            ),
-    };
-
-    const layers: DrawLayer[] = [];
-    const drawOrder = DRAW_ORDERS[actionId] ?? {};
-    for (let slot = 4; slot >= 1; slot -= 1) {
-      const partSlot = drawOrder[slot];
-      if (!partSlot) continue;
-      const resource = resources[partSlot];
-      if (!resource) continue;
-      const picked = resolveDraw(
-        resource.actions.get(actionId),
-        pack.palettes,
-        resource.dye,
-        params.colorFrame,
-        pack.animation.get(
-          `${resource.partKey}:${resource.itemId}:${actionId}:${resource.dye}`,
-        ),
-      );
-      if (picked) layers.push({ partKey: resource.partKey, ...picked });
-    }
-
-    const bodyResourceId = resourceIdOf(
-      pack.meta.parts.body.base,
-      params.body,
-      params.bodyDye,
-    );
-    const shadowTable = params.shadow
-      ? (pack.shadowTables[
-          pack.meta.bodyShadowChoice?.[bodyResourceId] === 2 ? 1 : 0
-        ] ?? null)
-      : null;
-    const shadow = shadowTable?.[actionId] ?? null;
+    const { resources, layers, shadowTable, shadow } = this.plan(params);
 
     const hasShadowFrame = Boolean(
       shadow && pack.shadowEpf.getBounds(shadow.frame),
@@ -441,7 +393,8 @@ export class OldBaramRenderer {
      * 그래서 이 착용 조합이 만들 수 있는 모든 프레임을 덮는 캔버스에
      * 늘 같은 원점으로 그린다. 동작/방향/프레임이 바뀌어도 크기가 고정된다.
      */
-    const frameWindow = this.frameWindowFor(params, resources, shadowTable);
+    const frameWindow =
+      params.canvas ?? this.frameWindowFor(params, resources, shadowTable);
     const originX = -frameWindow.left;
     const originY = -frameWindow.top;
     const surface = new RgbaSurface(frameWindow.width, frameWindow.height);
@@ -468,7 +421,8 @@ export class OldBaramRenderer {
       );
     }
 
-    const png = encodePng(appendWatermark(scaleNearest(surface, params.zoom)));
+    const scaled = scaleNearest(surface, params.zoom);
+    const png = encodePng(params.watermark ? appendWatermark(scaled) : scaled);
     this.pngCache.set(cacheKey, png);
     if (this.pngCache.size > 512) {
       const oldest = this.pngCache.keys().next().value as string | undefined;
@@ -477,9 +431,172 @@ export class OldBaramRenderer {
     return png;
   }
 
+  /**
+   * 크기를 하나로 맞춘 PNG 여러 장.
+   * 염색 목록이나 부위 썸네일 시트처럼 칸마다 캐릭터가 같은 자리에 서야 하는 곳에 쓴다.
+   */
+  renderSheet(requests: OldBaramRenderRequest[]): {
+    canvas: FrameWindow;
+    images: Buffer[];
+  } {
+    const canvas = this.measureCanvas(requests);
+    return {
+      canvas,
+      images: requests.map((request) => this.render({ ...request, canvas })),
+    };
+  }
+
+  /** 요청들이 실제로 그리는 조각만 덮는 최소 캔버스. */
+  measureCanvas(requests: OldBaramRenderRequest[]): FrameWindow {
+    const pack = this.requirePack();
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    const include = (image: EpfImage, frame: number) => {
+      const bounds = image.getBounds(frame);
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+      if (bounds.left < left) left = bounds.left;
+      if (bounds.top < top) top = bounds.top;
+      if (bounds.right > right) right = bounds.right;
+      if (bounds.bottom > bottom) bottom = bounds.bottom;
+    };
+
+    for (const request of requests) {
+      const { layers, shadow } = this.plan(this.normalize(request));
+      for (const layer of layers) include(pack.epf[layer.partKey], layer.frame);
+      if (shadow) include(pack.shadowEpf, shadow.frame);
+    }
+
+    return Number.isFinite(left)
+      ? { left, top, width: right - left, height: bottom - top }
+      : pack.frameWindow;
+  }
+
+  /**
+   * 한 부위가 가진 염색을 전부 같은 크기의 썸네일로 그린다.
+   * 염색 하나에 한 번씩 왕복하지 않도록 선택 목록을 한 응답으로 내려보내기 위한 것이라
+   * 자세는 서기로 고정하고 그림자·워터마크는 뺀다.
+   */
+  renderDyeSheet(
+    slot: OldBaramSlotKey,
+    request: OldBaramRenderRequest,
+  ): { item: number; dyes: number[]; canvas: FrameWindow; images: Buffer[] } {
+    const item = this.normalize(request)[slot];
+    const dyes = item === -1 ? [] : this.dyesOf(slot, item);
+    if (dyes.length === 0) {
+      return { item, dyes, canvas: EMPTY_WINDOW, images: [] };
+    }
+
+    return {
+      item,
+      dyes,
+      ...this.renderSheet(
+        dyes.map((dye) => ({
+          ...request,
+          [`${slot}Dye`]: dye,
+          state: 'stand' as const,
+          frame: 0,
+          colorFrame: 0,
+          shadow: false,
+          watermark: false,
+        })),
+      ),
+    };
+  }
+
+  /** 부위 한 칸이 지원하는 염색 번호. 없는 아이템이면 빈 배열. */
+  dyesOf(slot: OldBaramSlotKey, itemId: number): number[] {
+    const pack = this.requirePack();
+    if (slot === 'weapon') {
+      const partKey = weaponPartOf(itemId);
+      if (!partKey) return [];
+      return this.dyesOfPart(partKey, itemId - weaponOffset(partKey));
+    }
+    return this.dyesOfPart(slot, itemId);
+  }
+
+  private dyesOfPart(partKey: PartKey, itemId: number): number[] {
+    const part = this.requirePack().meta.parts[partKey];
+    return part?.items.find((item) => item.id === itemId)?.dyes ?? [];
+  }
+
   private requirePack(): LoadedPack {
     this.load();
     return this.pack as LoadedPack;
+  }
+
+  /** 한 요청이 어떤 액션의 어떤 조각들을 어떤 순서로 그리는지 정한다. */
+  private plan(params: NormalizedRequest): {
+    actionId: number;
+    resources: Record<number, PartResource | null>;
+    layers: DrawLayer[];
+    shadowTable: Array<ShadowEntry | null> | null;
+    shadow: ShadowEntry | null;
+  } {
+    const pack = this.requirePack();
+    const actionId = resolveActionId({
+      state: params.state,
+      weaponType: weaponTypeOf(params.weapon),
+      direction: params.direction,
+      frame: params.frame % frameCountFor(params.state, params.emote),
+      emote: params.emote,
+    });
+    if (actionId === undefined) {
+      throw new RangeError('해당 조합의 동작 프레임이 없습니다.');
+    }
+
+    const resources: Record<number, PartResource | null> = {
+      [PART_HEAD]: this.partResource('head', params.head, params.headDye),
+      [PART_BODY]: this.partResource('body', params.body, params.bodyDye),
+      [PART_WEAPON]: this.weaponResource(params.weapon, params.weaponDye),
+      [PART_SHIELD]:
+        params.shield === -1
+          ? null
+          : this.partResource('shield', params.shield, params.shieldDye),
+    };
+
+    const layers: DrawLayer[] = [];
+    const drawOrder = DRAW_ORDERS[actionId] ?? {};
+    for (let slot = 4; slot >= 1; slot -= 1) {
+      const partSlot = drawOrder[slot];
+      if (!partSlot) continue;
+      const resource = resources[partSlot];
+      if (!resource) continue;
+      // 이 부위에 없는 액션이면 같은 자세를 담고 있는 액션으로 대신한다.
+      const partActionId = resource.actions.has(actionId)
+        ? actionId
+        : (ACTION_ALIASES[actionId] ?? actionId);
+      const picked = resolveDraw(
+        resource.actions.get(partActionId),
+        pack.palettes,
+        resource.dye,
+        params.colorFrame,
+        pack.animation.get(
+          `${resource.partKey}:${resource.itemId}:${partActionId}:${resource.dye}`,
+        ),
+      );
+      if (picked) layers.push({ partKey: resource.partKey, ...picked });
+    }
+
+    const bodyResourceId = resourceIdOf(
+      pack.meta.parts.body.base,
+      params.body,
+      params.bodyDye,
+    );
+    const shadowTable = params.shadow
+      ? (pack.shadowTables[
+          pack.meta.bodyShadowChoice?.[bodyResourceId] === 2 ? 1 : 0
+        ] ?? null)
+      : null;
+
+    return {
+      actionId,
+      resources,
+      layers,
+      shadowTable,
+      shadow: shadowTable?.[actionId] ?? null,
+    };
   }
 
   /**
@@ -573,6 +690,8 @@ export class OldBaramRenderer {
       colorFrame: request.colorFrame ?? 0,
       shadow: request.shadow ?? true,
       zoom: request.zoom ?? 4,
+      canvas: request.canvas ?? null,
+      watermark: request.watermark ?? true,
     };
 
     if (!STATES.some((state) => state.key === normalized.state)) {

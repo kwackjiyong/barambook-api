@@ -2,14 +2,17 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Header,
   Query,
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { RendererService } from './renderer.service';
 import { OldBaramRendererService } from './old-baram-renderer.service';
-import type {
-  OldBaramRenderRequest,
+import {
+  SLOT_KEYS,
+  type OldBaramRenderRequest,
+  type OldBaramSlotKey,
 } from '../lib/old-baram/renderer';
 import type { OldBaramState } from '../lib/old-baram/actions';
 
@@ -48,6 +51,30 @@ export class RendererController {
   @Get('/old-baram/options')
   getOldBaramOptions() {
     return this.oldBaram.getOptions();
+  }
+
+  /**
+   * 한 부위의 염색 목록을 썸네일까지 한 번에 내려보낸다.
+   * 착용값은 렌더 API와 같은 쿼리를 쓰고, `slot` 이 가리키는 부위의 염색만 바뀐다.
+   */
+  @Get('/old-baram/dyes')
+  @Header('Cache-Control', 'public, max-age=86400')
+  getOldBaramDyes(@Query() query: Record<string, string | undefined>) {
+    const slot = query.slot;
+    if (!isSlotKey(slot)) {
+      throw new BadRequestException(
+        `slot은 ${SLOT_KEYS.join(', ')} 중 하나여야 합니다.`,
+      );
+    }
+
+    try {
+      return this.oldBaram.getDyeList(slot, parseOldBaramQuery(query));
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
   }
 
   @Get()
@@ -154,6 +181,10 @@ export class RendererController {
 
     res.send({ imageBuffers: buffers.map((b) => b.toString('base64')) });
   }
+}
+
+function isSlotKey(value: unknown): value is OldBaramSlotKey {
+  return SLOT_KEYS.includes(value as OldBaramSlotKey);
 }
 
 function optionalInteger(

@@ -15,6 +15,9 @@ logs/
 # TypeScript 빌드 캐시
 *.tsbuildinfo
 
+# CDN 업로드용 산출물 (tools/build-old-baram-part-sheets.ts)
+/cdn-upload/
+
 # 에디터 및 IDE 설정 파일
 .vscode/
 .idea/

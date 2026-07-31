@@ -98,6 +98,14 @@ export const ATTACK_ACTIONS: Record<
   4: { 0: STAND_ACTIONS[4], 1: STAND_ACTIONS[4] },
 };
 
+/**
+ * 걷기에 실제로 쓰는 자세 순서.
+ * MOVE_ACTIONS 의 1번은 두 발을 모은 서기 자세이고, 발을 내딛는 자세(0·2) 사이마다
+ * 이 서기를 한 번씩 거쳐야 걸음이 이어진다. 0-1-2 로만 돌리면 오른발 다음에
+ * 곧바로 왼발이 나와 한 걸음이 튄다.
+ */
+export const MOVE_POSES = [0, 1, 2, 1] as const;
+
 export const CAST_ACTION = byDirection(72, 73, 74, 75);
 export const PICK_UP_ACTION = byDirection(76, 77, 78, 79);
 export const EAT_ACTION = byDirection(92, 92, 92, 92);
@@ -144,6 +152,30 @@ export const EMOTE_ACTIONS: Record<number, EmoteTable> = (() => {
   return emotes;
 })();
 
+/**
+ * 머리 리소스는 액션 149번까지만 있어 감정표현 12~15(액션 150~165)에서 머리가 통째로 빠진다.
+ * 이 구간의 갑옷 프레임은 앞선 액션과 완전히 같은 그림이라(갑옷 152종 전수 확인)
+ * 같은 자세의 머리를 그대로 빌려 쓴다.
+ */
+export const ACTION_ALIASES: Record<number, number> = {
+  150: 96,
+  151: 97,
+  152: 98,
+  153: 99,
+  154: 93,
+  155: 93,
+  156: 93,
+  157: 93,
+  158: 0,
+  159: 3,
+  160: 6,
+  161: 9,
+  162: 96,
+  163: 97,
+  164: 98,
+  165: 99,
+};
+
 const PART_BY_CHAR: Record<string, PartSlot> = {
   h: PART_HEAD,
   b: PART_BODY,
@@ -189,7 +221,7 @@ export const STATES: ReadonlyArray<{
   frames: number;
 }> = [
   { key: 'stand', label: '서기', frames: 1 },
-  { key: 'move', label: '걷기', frames: 3 },
+  { key: 'move', label: '걷기', frames: MOVE_POSES.length },
   { key: 'attack', label: '공격', frames: 2 },
   { key: 'cast', label: '주문', frames: 1 },
   { key: 'pickup', label: '줍기', frames: 1 },
@@ -235,7 +267,9 @@ export function resolveActionId({
     case 'stand':
       return STAND_ACTIONS[weaponType]?.[direction];
     case 'move':
-      return MOVE_ACTIONS[weaponType]?.[frame % 3]?.[direction];
+      return MOVE_ACTIONS[weaponType]?.[
+        MOVE_POSES[frame % MOVE_POSES.length]
+      ]?.[direction];
     case 'attack':
       return ATTACK_ACTIONS[weaponType]?.[frame % 2]?.[direction];
     case 'cast':
