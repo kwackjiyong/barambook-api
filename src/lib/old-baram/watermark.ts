@@ -93,6 +93,8 @@ function paintedBounds(surface: StampTarget) {
 
 /** 글자가 그림 폭에서 차지하는 비율. 확대율이 바뀌어도 이 비율은 그대로다. */
 const TARGET_WIDTH_RATIO = 0.82;
+/** 세로로 몇 줄 반복할지. 한 줄만 있으면 그 줄만 지워도 표시가 사라진다. */
+const LINE_COUNT = 4;
 
 /**
  * 의상실이 캐릭터를 올려 두는 바탕색(`#efe8d9`).
@@ -105,10 +107,30 @@ const TARGET_WIDTH_RATIO = 0.82;
  */
 const INK: [number, number, number] = [0xef, 0xe8, 0xd9];
 /** 진하기. 낮출수록 연하다. */
-const INK_ALPHA = 46;
+const INK_ALPHA = 52;
 
-/** 밑에 무엇이 깔렸든 같은 색을 같은 알파로 얹는다. */
-function markPixel(surface: StampTarget, x: number, y: number): void {
+/**
+ * 캐릭터 **뒤에** 불투명한 글자를 깐다.
+ *
+ * 캐릭터가 가린 자리는 그대로 덮이고, 빈 여백에만 또렷하게 남는다.
+ * 무대 위에서는 바탕과 같은 색이라 보이지 않지만, 내려받아 다른 바탕에 올리면
+ * 반투명 글자보다 훨씬 진하게 드러난다.
+ * 반투명한 화소(그림자 등)는 그 아래로 제대로 깔린다.
+ */
+function markBehind(surface: StampTarget, x: number, y: number): void {
+  if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
+  const offset = (y * surface.width + x) * 4;
+  const front = surface.rgba[offset + 3] / 255;
+
+  for (let channel = 0; channel < 3; channel += 1) {
+    surface.rgba[offset + channel] =
+      surface.rgba[offset + channel] * front + INK[channel] * (1 - front);
+  }
+  surface.rgba[offset + 3] = 255;
+}
+
+/** 캐릭터 **위에** 같은 색을 낮은 알파로 얹는다. */
+function markOver(surface: StampTarget, x: number, y: number): void {
   if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
   const offset = (y * surface.width + x) * 4;
 
@@ -153,23 +175,32 @@ export function stampWatermark(surface: StampTarget): void {
 
   const scale = room / baseWidth;
   const height = GLYPH_HEIGHT * scale;
-  // 그림 한가운데. 세로는 캐릭터가 그려진 범위의 가운데에 맞춘다.
   const left = (surface.width - baseWidth * scale) / 2;
-  const top = (painted.top + painted.bottom + 1 - height) / 2;
+
+  // 캐릭터가 그려진 높이에 고르게 나눠 여러 줄로 반복한다.
+  const paintedHeight = painted.bottom - painted.top + 1;
+  const step = paintedHeight / LINE_COUNT;
 
   // 글자 칸 하나를 사각형으로 채운다. 소수 배율에서도 틈이 생기지 않는다.
   const cells: Array<[number, number, number, number]> = [];
-  for (const [px, py] of glyphPoints(text, 0, 0)) {
-    const x0 = Math.round(left + px * scale);
-    const x1 = Math.round(left + (px + 1) * scale);
-    const y0 = Math.round(top + py * scale);
-    const y1 = Math.round(top + (py + 1) * scale);
-    cells.push([x0, y0, x1, y1]);
+  for (let line = 0; line < LINE_COUNT; line += 1) {
+    const top = painted.top + step * (line + 0.5) - height / 2;
+    for (const [px, py] of glyphPoints(text, 0, 0)) {
+      cells.push([
+        Math.round(left + px * scale),
+        Math.round(top + py * scale),
+        Math.round(left + (px + 1) * scale),
+        Math.round(top + (py + 1) * scale),
+      ]);
+    }
   }
 
-  for (const [x0, y0, x1, y1] of cells) {
-    for (let y = y0; y < y1; y += 1) {
-      for (let x = x0; x < x1; x += 1) markPixel(surface, x, y);
+  // 캐릭터 뒤에 진한 글자를 깔고, 그 위에 같은 자리로 반투명 글자를 얹는다.
+  for (const paintCell of [markBehind, markOver]) {
+    for (const [x0, y0, x1, y1] of cells) {
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = x0; x < x1; x += 1) paintCell(surface, x, y);
+      }
     }
   }
 }

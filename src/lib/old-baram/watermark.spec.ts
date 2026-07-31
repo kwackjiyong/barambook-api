@@ -98,10 +98,10 @@ describe('stampWatermark', () => {
   });
 
   /*
-   * 빈 곳에 얹힌 글자는 무대 바탕색이라 화면에서는 묻히고,
-   * 내려받아 다른 바탕에 올리면 드러난다.
+   * 캐릭터 뒤에 깐 글자는 빈 여백에만 남는다. 무대 바탕색 그대로라 화면에서는 묻히고,
+   * 내려받아 다른 바탕에 올리면 진하게 드러난다.
    */
-  it('melts into the stage colour where the canvas is empty', () => {
+  it('lays a solid stage-coloured line behind the character', () => {
     const mark = stampAndDiff(200, 260);
     expect(mark.onEmpty).toBeGreaterThan(20);
 
@@ -112,9 +112,31 @@ describe('stampWatermark', () => {
         mark.surface.rgba[offset],
         mark.surface.rgba[offset + 1],
         mark.surface.rgba[offset + 2],
-      ]).toEqual([0xef, 0xe8, 0xd9]);
-      // 반투명이어야 바탕 위에서 자연스럽게 녹아든다.
-      expect(mark.surface.rgba[offset + 3]).toBeLessThan(128);
+        mark.surface.rgba[offset + 3],
+      ]).toEqual([0xef, 0xe8, 0xd9, 255]);
     }
+  });
+
+  /* 한 줄만 있으면 그 줄만 지워도 표시가 사라진다. */
+  it('repeats down the character instead of marking one line', () => {
+    const mark = stampAndDiff(200, 260);
+    const rows = new Set<number>();
+
+    for (let y = 0; y < 260; y += 1) {
+      for (let x = 0; x < 200; x += 1) {
+        const offset = (y * 200 + x) * 4;
+        if (mark.surface.rgba[offset] !== mark.before[offset]) {
+          rows.add(y);
+          break;
+        }
+      }
+    }
+
+    // 글자가 놓인 줄들 사이에 빈 줄이 있어야 여러 줄로 나뉜 것이다.
+    const sorted = [...rows].sort((left, right) => left - right);
+    const breaks = sorted.filter(
+      (row, index) => index > 0 && row - sorted[index - 1] > 1,
+    );
+    expect(breaks.length).toBeGreaterThanOrEqual(3);
   });
 });
