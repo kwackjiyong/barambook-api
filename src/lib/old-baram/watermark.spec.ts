@@ -84,6 +84,45 @@ describe('stampWatermark', () => {
     expect(Math.max(...shares) - Math.min(...shares)).toBeLessThan(0.08);
   });
 
+  /*
+   * 화면에서는 무대 바탕에 묻히고 내려받으면 드러나야 한다.
+   * 빈 여백은 바탕색으로 채우고, 캐릭터와 겹치는 자리는 밑색을 살짝 미는 것으로 끝낸다.
+   * 캐릭터를 아예 비켜 가면 아래 몇 줄만 잘라내도 표시가 사라진다.
+   */
+  it('fills empty space with the stage colour and only tints the character', () => {
+    const surface = surfaceWith(200, 260);
+    const before = Uint8ClampedArray.from(surface.rgba);
+    stampWatermark(surface);
+
+    let filledEmpty = 0;
+    let tintedBody = 0;
+
+    for (let offset = 0; offset < surface.rgba.length; offset += 4) {
+      const wasEmpty = before[offset + 3] === 0;
+      const changed =
+        surface.rgba[offset] !== before[offset] ||
+        surface.rgba[offset + 3] !== before[offset + 3];
+      if (!changed) continue;
+
+      if (wasEmpty) {
+        expect([
+          surface.rgba[offset],
+          surface.rgba[offset + 1],
+          surface.rgba[offset + 2],
+          surface.rgba[offset + 3],
+        ]).toEqual([0xef, 0xe8, 0xd9, 255]);
+        filledEmpty += 1;
+      } else {
+        // 캐릭터 위에서는 불투명도를 건드리지 않는다. 실루엣이 바뀌면 안 된다.
+        expect(surface.rgba[offset + 3]).toBe(before[offset + 3]);
+        tintedBody += 1;
+      }
+    }
+
+    expect(filledEmpty).toBeGreaterThan(0);
+    expect(tintedBody).toBeGreaterThan(0);
+  });
+
   it('sits at the bottom, near the feet rather than the empty canvas floor', () => {
     const mark = markBounds(200, 260);
     const middle = (mark.body.top + mark.body.bottom) / 2;

@@ -93,47 +93,66 @@ function paintedBounds(surface: StampTarget) {
 
 /** 글자가 그림 폭에서 차지하는 비율. 확대율이 바뀌어도 이 비율은 그대로다. */
 const TARGET_WIDTH_RATIO = 0.62;
-/** 글자 아래를 그림 바닥에서 얼마나 띄울지(글자 높이 대비) */
-const BOTTOM_MARGIN_RATIO = 0.4;
 
-const INK: [number, number, number] = [24, 26, 24];
-const HALO: [number, number, number] = [255, 252, 244];
-/** 진하기. 낮출수록 그림에 묻힌다. */
-const INK_ALPHA = 165;
-const HALO_ALPHA = 115;
+/**
+ * 의상실이 캐릭터를 올려 두는 바탕색(`#efe8d9`).
+ *
+ * 이 색으로 **빈 여백에만** 찍으면 화면에서는 바탕에 묻혀 보이지 않고,
+ * 저장해서 다른 바탕에 올리는 순간 드러난다.
+ * 프론트에서 무대·부위 썸네일·목록 타일이 모두 같은 색을 쓰므로 한 값이면 된다.
+ * (`src/app/old-render/components/OldDressRoom.module.css`)
+ */
+const STAGE_BACKGROUND: [number, number, number] = [0xef, 0xe8, 0xd9];
 
-function paint(
-  surface: StampTarget,
-  x: number,
-  y: number,
-  color: [number, number, number],
-  alpha: number,
-): void {
+/** 캐릭터 위에 겹친 부분의 진하기. 1에 가까울수록 연하다. */
+const TINT_FACTOR = 0.82;
+/** 어둡게 밀지 밝게 밀지 가르는 밝기 */
+const LUMA_PIVOT = 96;
+
+/**
+ * 글자 한 화소를 찍는다. 밑에 무엇이 깔렸는지에 따라 두 갈래로 나뉜다.
+ *
+ * - **빈 여백**: 무대 바탕색으로 채운다. 의상실에서는 바탕에 묻혀 안 보이고,
+ *   내려받아 다른 바탕에 올리면 드러난다.
+ * - **캐릭터 위**: 밑색을 살짝 밀어 물들인다. 바탕색으로 덮으면 화면에서 그대로 보인다.
+ *   그렇다고 캐릭터를 비켜 가면 아래 여백만 잘라내도 표시가 사라져,
+ *   겹쳐 찍는 원래 목적이 없어진다.
+ */
+function markPixel(surface: StampTarget, x: number, y: number): void {
   if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
   const offset = (y * surface.width + x) * 4;
-  const source = alpha / 255;
-  const behind = (surface.rgba[offset + 3] / 255) * (1 - source);
-  const total = source + behind;
-  if (total <= 0) return;
 
-  for (let channel = 0; channel < 3; channel += 1) {
-    surface.rgba[offset + channel] =
-      (color[channel] * source + surface.rgba[offset + channel] * behind) /
-      total;
+  if (surface.rgba[offset + 3] === 0) {
+    surface.rgba[offset] = STAGE_BACKGROUND[0];
+    surface.rgba[offset + 1] = STAGE_BACKGROUND[1];
+    surface.rgba[offset + 2] = STAGE_BACKGROUND[2];
+    surface.rgba[offset + 3] = 255;
+    return;
   }
-  surface.rgba[offset + 3] = total * 255;
+
+  const red = surface.rgba[offset];
+  const green = surface.rgba[offset + 1];
+  const blue = surface.rgba[offset + 2];
+  const luma = 0.299 * red + 0.587 * green + 0.114 * blue;
+  const factor = luma > LUMA_PIVOT ? TINT_FACTOR : 1 / TINT_FACTOR;
+
+  surface.rgba[offset] = red * factor;
+  surface.rgba[offset + 1] = green * factor;
+  surface.rgba[offset + 2] = blue * factor;
 }
 
 /**
- * 확대가 끝난 그림 아래쪽에 출처를 찍는다.
+ * 캐릭터 아래쪽에 걸쳐 출처를 찍는다.
+ *
+ * 의상실 화면에서는 거의 드러나지 않고 내려받아 다른 바탕에 올리면 보인다.
+ * 빈 여백은 무대 바탕색으로 채워 화면에서 묻히게 하고, 캐릭터와 겹치는 부분만
+ * 밑색을 살짝 밀어 물들인다. 캐릭터를 아예 비켜 가면 아래 몇 줄만 잘라내도
+ * 표시가 사라져, 겹쳐 찍는 원래 목적이 없어진다.
  *
  * 글자 크기는 **그림 폭의 일정 비율**로 잡는다. 확대율과 무관하게 1픽셀로 찍거나
  * 정수 배율로만 키우면 확대율이 바뀔 때마다 크기가 튀어, 어떤 때는 좁쌀만 하고
  * 어떤 때는 유난히 크다. 배율을 소수로 두고 글자 칸을 사각형으로 채워
  * 어느 확대율에서나 같은 비율로 보이게 한다.
- *
- * 자리는 캔버스 바닥이 아니라 **그려진 화소**의 바닥에 맞춘다. 캔버스는 모든 자세를
- * 담느라 여백이 넓어서, 바닥에 맞추면 캐릭터에서 한참 떨어진 빈 곳에 놓인다.
  */
 export function stampWatermark(surface: StampTarget): void {
   const painted = paintedBounds(surface);
@@ -153,10 +172,8 @@ export function stampWatermark(surface: StampTarget): void {
   const scale = room / baseWidth;
   const height = GLYPH_HEIGHT * scale;
   const left = (surface.width - baseWidth * scale) / 2;
-  const top = Math.min(
-    painted.bottom - height * BOTTOM_MARGIN_RATIO,
-    surface.height - height,
-  );
+  // 캐릭터 아래쪽에 걸치게 둔다. 여백으로 내리면 그 줄만 잘라내도 표시가 사라진다.
+  const top = painted.bottom - height + 1;
 
   // 글자 칸 하나를 사각형으로 채운다. 소수 배율에서도 틈이 생기지 않는다.
   const cells: Array<[number, number, number, number]> = [];
@@ -168,31 +185,9 @@ export function stampWatermark(surface: StampTarget): void {
     cells.push([x0, y0, x1, y1]);
   }
 
-  const filled = new Set<string>();
   for (const [x0, y0, x1, y1] of cells) {
     for (let y = y0; y < y1; y += 1) {
-      for (let x = x0; x < x1; x += 1) filled.add(`${x}:${y}`);
+      for (let x = x0; x < x1; x += 1) markPixel(surface, x, y);
     }
-  }
-
-  // 밝은 배경과 어두운 배경 어디에 올려도 읽히도록 글자 뒤에 후광을 깐다.
-  const halo = new Set<string>();
-  for (const key of filled) {
-    const [x, y] = key.split(':').map(Number);
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
-        const around = `${x + dx}:${y + dy}`;
-        if (!filled.has(around)) halo.add(around);
-      }
-    }
-  }
-
-  for (const key of halo) {
-    const [x, y] = key.split(':').map(Number);
-    paint(surface, x, y, HALO, HALO_ALPHA);
-  }
-  for (const key of filled) {
-    const [x, y] = key.split(':').map(Number);
-    paint(surface, x, y, INK, INK_ALPHA);
   }
 }
