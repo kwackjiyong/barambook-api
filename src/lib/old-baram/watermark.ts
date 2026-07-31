@@ -107,7 +107,7 @@ const LINE_COUNT = 4;
  */
 const INK: [number, number, number] = [0xef, 0xe8, 0xd9];
 /** 진하기. 낮출수록 연하다. */
-const INK_ALPHA = 52;
+const INK_ALPHA = 55;
 
 /**
  * 캐릭터 **뒤에** 불투명한 글자를 깐다.
