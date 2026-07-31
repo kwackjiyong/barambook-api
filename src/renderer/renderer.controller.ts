@@ -11,6 +11,7 @@ import { Response } from 'express';
 import { RendererService } from './renderer.service';
 import { OldBaramRendererService } from './old-baram-renderer.service';
 import { rateLimit } from '../common/rate-limit.guard';
+import { blockHotlink } from '../common/referer.guard';
 import {
   SLOT_KEYS,
   type OldBaramRenderRequest,
@@ -49,7 +50,7 @@ export class RendererController {
   ) {}
 
   @Get('/old-baram')
-  @UseGuards(rateLimit(RENDER_RATE_PER_SECOND, RENDER_BURST))
+  @UseGuards(blockHotlink, rateLimit(RENDER_RATE_PER_SECOND, RENDER_BURST))
   renderOldBaram(
     @Query() query: Record<string, string | undefined>,
     @Res() res: Response,
@@ -78,7 +79,7 @@ export class RendererController {
    * 착용값은 렌더 API와 같은 쿼리를 쓰고, `slot` 이 가리키는 부위의 염색만 바뀐다.
    */
   @Get('/old-baram/dyes')
-  @UseGuards(rateLimit(DYE_LIST_RATE_PER_SECOND, DYE_LIST_BURST))
+  @UseGuards(blockHotlink, rateLimit(DYE_LIST_RATE_PER_SECOND, DYE_LIST_BURST))
   @Header('Cache-Control', 'public, max-age=86400')
   getOldBaramDyes(@Query() query: Record<string, string | undefined>) {
     const slot = query.slot;

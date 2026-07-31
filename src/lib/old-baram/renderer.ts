@@ -17,13 +17,7 @@ import {
   weaponTypeOf,
 } from './actions';
 import { EpfImage, type OldBaramPalette, type PixelSurface } from './epf-image';
-import {
-  WATERMARK_HEIGHT,
-  WATERMARK_MIN_WIDTH,
-  WATERMARK_PADDING,
-  WATERMARK_WIDTH,
-  drawWatermark,
-} from './watermark';
+import { stampWatermark } from './watermark';
 import {
   readAnim,
   readMeta,
@@ -240,31 +234,6 @@ function measureFrameWindow(images: EpfImage[]): FrameWindow {
   return { left, top, width: right - left, height: bottom - top };
 }
 
-/** 확대가 끝난 이미지 아래에 워터마크 띠를 붙인다. */
-function appendWatermark(source: RgbaSurface): RgbaSurface {
-  const band = WATERMARK_HEIGHT + WATERMARK_PADDING * 2;
-  // 확대율이 낮아 이미지가 글자보다 좁으면 워터마크가 잘리므로 폭을 벌린다.
-  const width = Math.max(source.width, WATERMARK_MIN_WIDTH);
-  const target = new RgbaSurface(width, source.height + band);
-  const offsetX = Math.floor((width - source.width) / 2);
-
-  for (let y = 0; y < source.height; y += 1) {
-    const from = y * source.width * 4;
-    target.rgba.set(
-      source.rgba.subarray(from, from + source.width * 4),
-      (y * width + offsetX) * 4,
-    );
-  }
-
-  drawWatermark(
-    target,
-    width - WATERMARK_WIDTH - WATERMARK_PADDING,
-    source.height + WATERMARK_PADDING,
-  );
-
-  return target;
-}
-
 /**
  * 화면에서 고를 수 있는 감정표현.
  *
@@ -276,12 +245,9 @@ function appendWatermark(source: RgbaSurface): RgbaSurface {
  */
 const SELECTABLE_EMOTES = Array.from({ length: 15 }, (_, id) => id);
 
-/** 확대와 워터마크 띠까지 반영한 최종 PNG 크기. appendWatermark 와 같은 규칙이다. */
+/** 확대까지 반영한 최종 PNG 크기. 워터마크는 그림 위에 겹치므로 크기를 늘리지 않는다. */
 function outputSizeOf(canvas: FrameWindow, zoom: number) {
-  return {
-    width: Math.max(canvas.width * zoom, WATERMARK_MIN_WIDTH),
-    height: canvas.height * zoom + WATERMARK_HEIGHT + WATERMARK_PADDING * 2,
-  };
+  return { width: canvas.width * zoom, height: canvas.height * zoom };
 }
 
 function weaponOffset(partKey: 'sword' | 'spear' | 'fan'): number {
@@ -369,13 +335,12 @@ export class OldBaramRenderer {
       limits: { zoom: [1, 8], colorFrame: [0, 7] },
       /*
        * 실제 캔버스는 착용 조합에 맞춰 좁혀지므로 이 값은 상한이다.
-       * PNG 최대 크기는 (width * zoom) x (height * zoom + watermarkBand).
+       * PNG 최대 크기는 (width * zoom) x (height * zoom).
        * 미리보기 영역을 미리 잡아 둘 때 쓴다.
        */
       maxCanvas: {
         width: pack.frameWindow.width,
         height: pack.frameWindow.height,
-        watermarkBand: WATERMARK_HEIGHT + WATERMARK_PADDING * 2,
       },
     };
   }
@@ -434,7 +399,9 @@ export class OldBaramRenderer {
       );
     }
 
-    const png = encodePng(appendWatermark(scaleNearest(surface, params.zoom)));
+    const scaled = scaleNearest(surface, params.zoom);
+    stampWatermark(scaled);
+    const png = encodePng(scaled);
     this.pngCache.set(cacheKey, png);
     if (this.pngCache.size > 512) {
       const oldest = this.pngCache.keys().next().value as string | undefined;

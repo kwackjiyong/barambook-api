@@ -125,6 +125,43 @@ describe('OldBaramRendererService', () => {
     expect(service.getDyeList('weapon', { weapon: -1 }).dyes).toEqual([]);
   });
 
+  /*
+   * 워터마크를 그림 아래 띠로 붙이면 몇 줄만 잘라내면 원본이 그대로 남아 수집을 못 막는다.
+   * 글자가 캐릭터 위를 지나가야 잘라낼 수 없다.
+   */
+  it('stamps the watermark across the character, not in empty space below it', () => {
+    const png = PNG.sync.read(
+      service.render({ ...WALKER, state: 'stand', direction: 1, zoom: 4 }),
+    );
+    const at = (x: number, y: number) => (y * png.width + x) * 4;
+    const isHalo = (x: number, y: number) => {
+      const offset = at(x, y);
+      return (
+        png.data[offset] === 255 &&
+        png.data[offset + 1] === 253 &&
+        png.data[offset + 2] === 247
+      );
+    };
+
+    const haloRows = new Set<number>();
+    for (let y = 0; y < png.height; y += 1) {
+      for (let x = 0; x < png.width; x += 1) {
+        if (isHalo(x, y)) haloRows.add(y);
+      }
+    }
+    expect(haloRows.size).toBeGreaterThan(0);
+
+    // 워터마크가 놓인 줄에는 글자 말고 캐릭터 화소도 함께 있어야 한다.
+    let characterPixels = 0;
+    for (const y of haloRows) {
+      for (let x = 0; x < png.width; x += 1) {
+        if (png.data[at(x, y) + 3] === 0 || isHalo(x, y)) continue;
+        characterPixels += 1;
+      }
+    }
+    expect(characterPixels).toBeGreaterThan(0);
+  });
+
   it('rejects unknown part ids', () => {
     expect(() => service.render({ head: 999_999 })).toThrow(
       'head 999999번 아이템이 없습니다.',
