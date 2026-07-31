@@ -9,8 +9,10 @@ import type { PixelSurface } from './epf-image';
  * 잘라내려면 캐릭터 발밑을 같이 잘라내야 한다.
  */
 export const WATERMARK_TEXT = 'BARAMBOOK.COM';
-/** 글자가 다 안 들어가는 작은 그림에 쓰는 짧은 표기 */
+/** 전체 표기가 안 들어가는 좁은 그림에 쓰는 짧은 표기 */
 export const WATERMARK_SHORT_TEXT = 'BB.COM';
+/** 그마저 안 들어가는 아주 작은 그림에 쓰는 표기 */
+export const WATERMARK_MARK_TEXT = 'BB';
 
 const GLYPH_WIDTH = 3;
 const GLYPH_HEIGHT = 5;
@@ -27,11 +29,6 @@ const GLYPHS: Record<string, string[]> = {
   R: ['110', '101', '110', '101', '101'],
   '.': ['000', '000', '000', '000', '010'],
 };
-
-const INK: [number, number, number] = [25, 28, 25];
-const HALO: [number, number, number] = [255, 253, 247];
-const INK_ALPHA = 190;
-const HALO_ALPHA = 120;
 
 /** 글자 픽셀 폭 */
 export function watermarkWidthOf(text: string): number {
@@ -94,68 +91,111 @@ function paintedBounds(surface: StampTarget) {
   return { left, top, right, bottom };
 }
 
+/** 글자가 몸통 폭에서 차지했으면 하는 비율 */
+const TARGET_WIDTH_RATIO = 0.9;
+/** 글자를 올릴 높이. 0이 정수리, 1이 발끝. 옷자락처럼 넓은 자리를 고른다. */
+const VERTICAL_ANCHOR = 0.72;
+/**
+ * 밝은 화소는 이만큼 어둡게, 어두운 화소는 그 역수만큼 밝게.
+ * 그림을 해치지 않는 쪽을 택한 값이라 눈에 잘 띄지 않는다.
+ * 더 또렷하게 남기고 싶으면 낮추면 된다(0.40이면 확대율 4 이상에서 도메인이 읽힌다).
+ */
+const TINT_FACTOR = 0.7;
+/** 어둡게 할지 밝게 할지 가르는 밝기 */
+const LUMA_PIVOT = 96;
+
+/**
+ * 한 줄에서 화소가 끊기지 않고 이어지는 가장 긴 구간.
+ *
+ * 바운딩 박스 폭을 쓰면 무기·방패까지 들어가 실제 몸통보다 훨씬 넓게 잡히고,
+ * 그 폭에 맞춰 글자를 키우면 대부분이 빈 곳에 떨어져 조각만 남는다.
+ * 글자를 얹을 자리는 옷자락처럼 꽉 찬 구간이어야 한다.
+ */
+function widestRun(surface: StampTarget, row: number) {
+  let best = { left: 0, width: 0 };
+  let start = -1;
+
+  for (let x = 0; x <= surface.width; x += 1) {
+    const solid =
+      x < surface.width && surface.rgba[(row * surface.width + x) * 4 + 3] > 0;
+    if (solid) {
+      if (start < 0) start = x;
+      continue;
+    }
+    if (start >= 0) {
+      if (x - start > best.width) best = { left: start, width: x - start };
+      start = -1;
+    }
+  }
+
+  return best;
+}
+
+/** 폭에 들어가는 가장 긴 표기. 좁을수록 짧게 줄인다. */
+function textFor(width: number): string {
+  if (watermarkWidthOf(WATERMARK_TEXT) <= width) return WATERMARK_TEXT;
+  if (watermarkWidthOf(WATERMARK_SHORT_TEXT) <= width)
+    return WATERMARK_SHORT_TEXT;
+  return WATERMARK_MARK_TEXT;
+}
+
+/**
+ * 화소 하나를 자기 색 기준으로 물들인다.
+ *
+ * 먹색 글자를 얹으면 그림 위에 붙인 스티커처럼 보인다. 대신 밑에 깔린 색을
+ * 어둡게(어두운 색이면 밝게) 밀어서, 그림이 원래 가진 색조를 그대로 따라가게 한다.
+ * 비어 있는 화소는 건드리지 않는다 - 그래야 글자가 캐릭터 안에만 남아 잘라낼 수 없다.
+ */
+function tintPixel(surface: StampTarget, x: number, y: number): void {
+  if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return;
+  const offset = (y * surface.width + x) * 4;
+  if (surface.rgba[offset + 3] === 0) return;
+
+  const red = surface.rgba[offset];
+  const green = surface.rgba[offset + 1];
+  const blue = surface.rgba[offset + 2];
+  const luma = 0.299 * red + 0.587 * green + 0.114 * blue;
+  const factor = luma > LUMA_PIVOT ? TINT_FACTOR : 1 / TINT_FACTOR;
+
+  surface.rgba[offset] = red * factor;
+  surface.rgba[offset + 1] = green * factor;
+  surface.rgba[offset + 2] = blue * factor;
+}
+
 /**
  * 확대가 끝난 그림 위에 출처를 겹쳐 찍는다.
  *
- * 캔버스 바닥이 아니라 **그려진 화소의 아래쪽**에 맞춘다.
- * 캔버스는 모든 자세를 담느라 여백이 넓어서, 바닥에 찍으면 빈 곳에 놓여
- * 아래 몇 줄만 잘라내면 그만이다. 캐릭터 몸 위로 지나가야 잘라낼 수 없다.
- * 폭이 좁아 전체 표기가 안 들어가면 짧은 표기로 줄인다.
+ * 글자 크기를 캐릭터 크기에 맞춰 키운다. 확대율과 무관하게 1픽셀로 찍으면
+ * 확대율 1과 8 사이에서 상대 크기가 여덟 배 벌어져, 어떤 때는 좁쌀만 하고
+ * 어떤 때는 화면을 덮는다.
+ *
+ * 자리는 캔버스 바닥이 아니라 **그려진 화소** 기준으로 잡는다. 캔버스는 모든 자세를
+ * 담느라 여백이 넓어서, 바닥에 맞추면 빈 곳에 놓여 아래 몇 줄만 잘라내면 그만이다.
  */
 export function stampWatermark(surface: StampTarget): void {
   const painted = paintedBounds(surface);
   if (!painted) return;
 
-  const text =
-    WATERMARK_WIDTH + WATERMARK_PADDING * 2 <= surface.width
-      ? WATERMARK_TEXT
-      : WATERMARK_SHORT_TEXT;
-  const width = watermarkWidthOf(text);
+  const paintedHeight = painted.bottom - painted.top + 1;
+  const anchorRow = Math.round(painted.top + paintedHeight * VERTICAL_ANCHOR);
+  const run = widestRun(surface, anchorRow);
+  if (run.width === 0) return;
 
-  // 가로는 캐릭터 가운데, 세로는 발치보다 살짝 위로 올려 몸에 걸친다.
-  const centerX = (painted.left + painted.right) / 2;
-  const x = Math.round(
-    Math.min(Math.max(centerX - width / 2, 0), surface.width - width),
-  );
-  const y = Math.max(
-    painted.top,
-    Math.min(painted.bottom - GLYPH_HEIGHT, surface.height - GLYPH_HEIGHT - 1),
-  );
+  const room = run.width * TARGET_WIDTH_RATIO;
+  const text = textFor(room);
+  const baseWidth = watermarkWidthOf(text);
+  const scale = Math.max(1, Math.floor(room / baseWidth));
 
-  drawWatermarkText(surface, x, y, text);
-}
+  const width = baseWidth * scale;
+  const height = GLYPH_HEIGHT * scale;
+  const left = Math.round(run.left + (run.width - width) / 2);
+  const top = Math.round(anchorRow - height / 2);
 
-/**
- * (x, y)를 글자 왼쪽 위로 삼아 워터마크를 찍는다.
- * 밝은 배경과 어두운 배경 어디에 올려도 읽히도록 먹색 글자 뒤에 종이색 후광을 깐다.
- */
-export function drawWatermarkText(
-  surface: PixelSurface,
-  x: number,
-  y: number,
-  text: string = WATERMARK_TEXT,
-): void {
-  const points = glyphPoints(text, x, y);
-  const filled = new Set(points.map(([px, py]) => `${px}:${py}`));
-  const halo = new Set<string>();
-
-  for (const [px, py] of points) {
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
-        if (dx === 0 && dy === 0) continue;
-        const key = `${px + dx}:${py + dy}`;
-        // 후광이 겹쳐 찍히면 알파가 쌓여 번지므로 좌표마다 한 번만 찍는다.
-        if (filled.has(key) || halo.has(key)) continue;
-        halo.add(key);
+  for (const [px, py] of glyphPoints(text, 0, 0)) {
+    for (let dy = 0; dy < scale; dy += 1) {
+      for (let dx = 0; dx < scale; dx += 1) {
+        tintPixel(surface, left + px * scale + dx, top + py * scale + dy);
       }
     }
-  }
-
-  for (const key of halo) {
-    const [px, py] = key.split(':').map(Number);
-    surface.setPixel(px, py, HALO[0], HALO[1], HALO[2], HALO_ALPHA);
-  }
-  for (const [px, py] of points) {
-    surface.setPixel(px, py, INK[0], INK[1], INK[2], INK_ALPHA);
   }
 }
