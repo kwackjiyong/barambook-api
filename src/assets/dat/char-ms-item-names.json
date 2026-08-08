@@ -474,9 +474,18 @@
     },
     {
       "id": 16,
-      "name": "끈옷",
+      "name": "끈옷1",
       "color": 0,
-      "aliases": []
+      "aliases": [
+        { "name": "끈옷2", "color": 1 },
+        { "name": "끈옷3", "color": 2 },
+        { "name": "끈옷4", "color": 3 },
+        { "name": "끈옷5", "color": 4 },
+        { "name": "끈옷6", "color": 5 },
+        { "name": "끈옷7", "color": 6 },
+        { "name": "끈옷8", "color": 7 },
+        { "name": "끈옷9", "color": 8 }
+      ]
     },
     {
       "id": 17,
