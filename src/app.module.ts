@@ -16,6 +16,7 @@ import { RankingModule } from './ranking/ranking.module';
 import { ChannelModule } from './channel/channel.module';
 import { TradeModule } from './trade/trade.module';
 import { NotificationModule } from './notification/notification.module';
+import { ChatFeedModule } from './chat-feed/chat-feed.module';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ dotenv.config();
     ChannelModule,
     TradeModule,
     NotificationModule,
+    ChatFeedModule,
   ],
   controllers: [AppController],
   providers: [AppService],

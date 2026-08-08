@@ -94,6 +94,13 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 - Website - [https://nestjs.com](https://nestjs.com/)
 - Twitter - [@nestframework](https://twitter.com/nestframework)
 
+## Chat feed API
+
+- `POST /chat-feed`: `barambook-chat-scan` 전용 적재 API. `x-chat-scan-key`와 `x-chat-message-id` 헤더가 필요합니다.
+- `GET /chat-feed`: 공개 조회 API. `type`, `from`, `to`, `name`, `content`, `cursor`, `limit` 필터를 지원합니다.
+- 적재 본문: `{ type, name, worldTagId, content }`
+- `x-chat-message-id`에는 원본 `chatMessageUID`를 보내며 MongoDB unique index로 재시도 중복을 방지합니다.
+
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
