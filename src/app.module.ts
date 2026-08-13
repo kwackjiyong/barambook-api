@@ -17,6 +17,7 @@ import { ChannelModule } from './channel/channel.module';
 import { TradeModule } from './trade/trade.module';
 import { NotificationModule } from './notification/notification.module';
 import { ChatFeedModule } from './chat-feed/chat-feed.module';
+import { HopaeModule } from './hopae/hopae.module';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ dotenv.config();
     TradeModule,
     NotificationModule,
     ChatFeedModule,
+    HopaeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

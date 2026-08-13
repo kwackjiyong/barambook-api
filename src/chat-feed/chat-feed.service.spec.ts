@@ -35,7 +35,10 @@ function makeService(rows: ChatMessage[] = [], failWith?: { code: number }) {
   const model = {
     find: (filter: Record<string, any>) => ((recorded.filter = filter), chain),
   };
-  const service = new ChatFeedService(model as any);
+  const chatUserModel = {
+    updateOne: () => ({ exec: async () => ({ acknowledged: true }) }),
+  };
+  const service = new ChatFeedService(model as any, chatUserModel as any);
   return { service, recorded };
 }
 
@@ -148,5 +151,38 @@ describe('ChatFeedService.findPage', () => {
     await expect(service.findPage({ content: '수박' })).rejects.toThrow(
       RequestTimeoutException,
     );
+  });
+});
+
+describe('ChatFeedService.create', () => {
+  it('stores a normalized v4 chat user when a message is collected', async () => {
+    const created = makeRow('2026-08-14T00:00:00.000Z');
+    const chatMessageModel = { create: jest.fn().mockResolvedValue(created) };
+    const exec = jest.fn().mockResolvedValue({ acknowledged: true });
+    const updateOne = jest.fn().mockReturnValue({ exec });
+    const service = new ChatFeedService(
+      chatMessageModel as any,
+      { updateOne } as any,
+    );
+
+    await service.create(
+      {
+        type: created.type,
+        name: ' main ',
+        worldTagId: 'DVaAB',
+        content: ' message ',
+      },
+      'message-1',
+    );
+
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: 'main' },
+      {
+        $set: { name: 'main', worldTagId: 'dvaab' },
+        $setOnInsert: { _id: 'main' },
+      },
+      { upsert: true },
+    );
+    expect(exec).toHaveBeenCalled();
   });
 });

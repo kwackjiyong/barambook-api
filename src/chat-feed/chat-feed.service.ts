@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
-import { ChatMessage } from './chat-feed.schema';
+import { ChatMessage, ChatUserV4 } from './chat-feed.schema';
 import { CreateChatMessageDto } from './dto/create-chat-message.dto';
 import { QueryChatFeedDto } from './dto/query-chat-feed.dto';
 
@@ -34,6 +34,8 @@ export class ChatFeedService {
   constructor(
     @InjectModel('chat_messages', 'barambook')
     private readonly chatMessageModel: Model<ChatMessage>,
+    @InjectModel('v4_chat_users', 'barambook')
+    private readonly chatUserV4Model: Model<ChatUserV4>,
   ) {}
 
   async create(dto: CreateChatMessageDto, sourceMessageId: string) {
@@ -47,17 +49,32 @@ export class ChatFeedService {
 
     try {
       const created = await this.chatMessageModel.create(normalized);
+      await this.upsertChatUser(normalized.name, normalized.worldTagId);
       return { created: true, item: this.serialize(created) };
     } catch (error) {
       if ((error as { code?: number })?.code !== 11000) throw error;
       const existing = await this.chatMessageModel
         .findOne({ sourceMessageId })
         .exec();
+      await this.upsertChatUser(normalized.name, normalized.worldTagId);
       return {
         created: false,
         item: existing ? this.serialize(existing) : null,
       };
     }
+  }
+
+  private async upsertChatUser(name: string, worldTagId: string) {
+    await this.chatUserV4Model
+      .updateOne(
+        { _id: name },
+        {
+          $set: { name, worldTagId: worldTagId.toLowerCase() },
+          $setOnInsert: { _id: name },
+        },
+        { upsert: true },
+      )
+      .exec();
   }
 
   async findPage(query: QueryChatFeedDto) {

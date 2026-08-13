@@ -35,6 +35,29 @@ export class ChatMessage extends Document {
 
 export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
 
+@Schema({
+  collection: 'v4_chat_users',
+  timestamps: true,
+  versionKey: false,
+})
+export class ChatUserV4 extends Document {
+  /** The character name is also the collection's primary key. */
+  @Prop({ type: String, required: true })
+  _id: string;
+
+  @Prop({ type: String, required: true, trim: true, unique: true })
+  name: string;
+
+  /** Normalized to lowercase so it can be joined with user_v3.MswKey. */
+  @Prop({ type: String, required: true, match: /^[a-z0-9]{5}$/, index: true })
+  worldTagId: string;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export const ChatUserV4Schema = SchemaFactory.createForClass(ChatUserV4);
+
 // 기본 피드 정렬과 커서 페이징에 사용한다.
 ChatMessageSchema.index({ createdAt: -1, _id: -1 });
 // 유형 탭 + 최신순. type 단독 인덱스는 이 인덱스의 prefix라 따로 두지 않는다.

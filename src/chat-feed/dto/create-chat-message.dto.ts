@@ -11,9 +11,9 @@ export class CreateChatMessageDto {
   name: string;
 
   @IsString()
-  @MinLength(1)
-  @MaxLength(32)
-  @Matches(/^[A-Za-z0-9]+$/)
+  @MinLength(5)
+  @MaxLength(5)
+  @Matches(/^[A-Za-z0-9]{5}$/)
   worldTagId: string;
 
   @IsString()
