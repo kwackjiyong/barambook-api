@@ -38,7 +38,14 @@ function makeService(rows: ChatMessage[] = [], failWith?: { code: number }) {
   const chatUserModel = {
     updateOne: () => ({ exec: async () => ({ acknowledged: true }) }),
   };
-  const service = new ChatFeedService(model as any, chatUserModel as any);
+  const gameMarketService = {
+    ingestChat: jest.fn().mockResolvedValue({ parsed: 0 }),
+  };
+  const service = new ChatFeedService(
+    model as any,
+    chatUserModel as any,
+    gameMarketService as any,
+  );
   return { service, recorded };
 }
 
@@ -163,6 +170,7 @@ describe('ChatFeedService.create', () => {
     const service = new ChatFeedService(
       chatMessageModel as any,
       { updateOne } as any,
+      { ingestChat: jest.fn().mockResolvedValue({ parsed: 0 }) } as any,
     );
 
     await service.create(

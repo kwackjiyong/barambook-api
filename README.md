@@ -101,6 +101,14 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 - 적재 본문: `{ type, name, worldTagId, content }`
 - `x-chat-message-id`에는 원본 `chatMessageUID`를 보내며 MongoDB unique index로 재시도 중복을 방지합니다.
 
+## In-game market API
+
+- 사자후가 적재되면 규칙 기반 파서가 아이템·판매/구매·염색·형변·내구도·가격을 분석해 `game_market_quotes`에 별도로 저장합니다. 거래소 `trade_listings`와는 합치지 않습니다.
+- `GET /game-market/overview`: 기간(`1d`, `7d`, `30d`, `90d`), 거래 방향, 아이템 검색 조건에 맞는 중앙 호가와 추이를 조회합니다.
+- `GET /game-market/quotes`: 아이템 ID별 최근 분석 원문을 조회합니다.
+- 규칙 검증: `npm run analyze:game-market -- <chat_messages.json> <item.json>`
+- 기존 수집본 반영: `npm run backfill:game-market -- <chat_messages.json>` (같은 파서 버전과 원문 ID는 다시 처리하지 않습니다.)
+
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

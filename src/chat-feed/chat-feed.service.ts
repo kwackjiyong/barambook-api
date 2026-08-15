@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   RequestTimeoutException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -8,6 +9,7 @@ import { FilterQuery, Model, Types } from 'mongoose';
 import { ChatMessage, ChatUserV4 } from './chat-feed.schema';
 import { CreateChatMessageDto } from './dto/create-chat-message.dto';
 import { QueryChatFeedDto } from './dto/query-chat-feed.dto';
+import { GameMarketService } from '../game-market/game-market.service';
 
 const DEFAULT_PAGE_SIZE = 30;
 // 실시간 폴링 한 번에 돌려줄 최대 건수. 이 한도를 넘으면 목록에 구멍이 생기므로 gap으로 알린다.
@@ -31,11 +33,14 @@ function escapeRegExp(value: string) {
 
 @Injectable()
 export class ChatFeedService {
+  private readonly logger = new Logger(ChatFeedService.name);
+
   constructor(
     @InjectModel('chat_messages', 'barambook')
     private readonly chatMessageModel: Model<ChatMessage>,
     @InjectModel('v4_chat_users', 'barambook')
     private readonly chatUserV4Model: Model<ChatUserV4>,
+    private readonly gameMarketService: GameMarketService,
   ) {}
 
   async create(dto: CreateChatMessageDto, sourceMessageId: string) {
@@ -50,6 +55,19 @@ export class ChatFeedService {
     try {
       const created = await this.chatMessageModel.create(normalized);
       await this.upsertChatUser(normalized.name, normalized.worldTagId);
+      try {
+        await this.gameMarketService.ingestChat({
+          ...normalized,
+          createdAt: created.createdAt,
+        });
+      } catch (error) {
+        // 시세 분석 실패가 원문 채팅 수집을 막아서는 안 된다. 원문은 남아 있어
+        // 규칙을 고친 뒤 다시 처리할 수 있다.
+        this.logger.error(
+          `인게임 시세 분석 실패: ${normalized.sourceMessageId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
       return { created: true, item: this.serialize(created) };
     } catch (error) {
       if ((error as { code?: number })?.code !== 11000) throw error;

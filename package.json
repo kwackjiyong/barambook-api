@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "backfill:chat-users": "ts-node scripts/backfill-v4-chat-users.ts"
+    "backfill:chat-users": "ts-node scripts/backfill-v4-chat-users.ts",
+    "analyze:game-market": "ts-node scripts/analyze-game-market-json.ts",
+    "backfill:game-market": "ts-node scripts/backfill-game-market-json.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
