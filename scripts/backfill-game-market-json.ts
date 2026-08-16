@@ -48,8 +48,11 @@ async function main() {
   let parsed = 0;
   try {
     for (let index = 0; index < chats.length; index += 250) {
+      // 과거 채팅을 다시 밀어 넣는 경로다. 파서 룰을 고쳐 지문이 전부 바뀌면
+      // 여기서 꽂히는 매물이 모두 신규가 되므로 알림을 반드시 꺼야 한다.
       const result = await market.ingestChats(
         chats.slice(index, index + 250).map(toInput),
+        { notify: false },
       );
       processed += result.processed;
       parsed += result.parsed;

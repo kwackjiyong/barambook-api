@@ -32,6 +32,19 @@ export type TradeNotification =
   | TradeRequestNotification
   | TradeMessageNotification;
 
+// 인게임 시세 알림 페이로드. 조건에 맞는 매물이 새로 올라왔을 때 쓴다.
+export interface MarketAlertPush {
+  // 알림을 겹쳐 쌓지 않도록 조건 단위로 묶는 데 쓴다.
+  ruleId: string;
+  itemName: string;
+  priceText: string;
+  sellerName: string;
+  sideLabel: string;
+  // 묶음/내구도처럼 헛걸음을 막아 주는 부가 표기 (있을 때만)
+  detail?: string;
+  url: string;
+}
+
 interface SseEvent {
   data: TradeNotification;
 }
@@ -178,6 +191,25 @@ export class NotificationService {
     });
   }
 
+  /**
+   * 시세 알림 발송. 거래 알림과 달리 SSE는 보내지 않는다.
+   * 화면에 떠 있는 사용자에게는 시세 목록 자체가 이미 갱신되기 때문이다.
+   */
+  async notifyMarketAlert(
+    accountId: string,
+    alert: MarketAlertPush,
+  ): Promise<void> {
+    const detail = alert.detail ? ` (${alert.detail})` : '';
+
+    await this.sendWebPush(accountId, {
+      title: `${alert.itemName} ${alert.priceText}`,
+      body: `${alert.sellerName} ${alert.sideLabel}${detail}`,
+      url: alert.url,
+      // 같은 조건의 알림이 화면에 겹겹이 쌓이지 않도록 조건 단위로 묶는다.
+      tag: `market-alert:${alert.ruleId}`,
+    });
+  }
+
   private emitSse(accountId: string, payload: TradeNotification): void {
     const streams = this.sseStreams.get(accountId);
 
@@ -192,7 +224,7 @@ export class NotificationService {
 
   private async sendWebPush(
     accountId: string,
-    message: { title: string; body: string; url: string },
+    message: { title: string; body: string; url: string; tag?: string },
   ): Promise<void> {
     if (!this.vapidConfigured) {
       return;

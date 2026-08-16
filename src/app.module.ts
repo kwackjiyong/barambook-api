@@ -19,6 +19,7 @@ import { NotificationModule } from './notification/notification.module';
 import { ChatFeedModule } from './chat-feed/chat-feed.module';
 import { HopaeModule } from './hopae/hopae.module';
 import { GameMarketModule } from './game-market/game-market.module';
+import { MarketAlertModule } from './market-alert/market-alert.module';
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ dotenv.config();
     ChatFeedModule,
     HopaeModule,
     GameMarketModule,
+    MarketAlertModule,
   ],
   controllers: [AppController],
   providers: [AppService],

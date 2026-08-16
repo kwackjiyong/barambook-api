@@ -5,14 +5,16 @@ import { FilterQuery, Model } from 'mongoose';
 import { Item } from '../guide/item/origin/item.schema';
 import {
   GAME_MARKET_RULE_VERSION,
+  MARKET_DYE_ALIASES,
+  PREMIUM_DYE_NAMES,
   resolveMarketSearchAlias,
 } from './game-market.rules';
 import {
   MarketCatalogItem,
-  MarketSide,
   parseMarketMessage,
   ParsedMarketQuote,
 } from './game-market.parser';
+import { MarketAlertService } from '../market-alert/market-alert.service';
 import { GameMarketIngestion, GameMarketQuote } from './game-market.schema';
 import {
   GameMarketPeriod,
@@ -27,6 +29,21 @@ export interface GameMarketChatInput {
   content: string;
   sourceMessageId: string;
   createdAt?: Date;
+}
+
+// 파싱된 시세 1건과 그 출처. 적재 결과에서 신규 매물을 역참조할 때 쓴다.
+export interface ParsedQuoteEntry {
+  chat: GameMarketChatInput;
+  quote: ParsedMarketQuote;
+  observedAt: Date;
+  fingerprint: string;
+}
+
+export interface IngestChatsResult {
+  processed: number;
+  parsed: number;
+  /** 이번 적재에서 실제로 새로 꽂힌 매물. 반복 사자후는 여기에 들어오지 않는다. */
+  inserted: ParsedQuoteEntry[];
 }
 
 export interface QuoteStats {
@@ -80,15 +97,23 @@ export class GameMarketService {
     private readonly ingestionModel: Model<GameMarketIngestion>,
     @InjectModel('items', 'barambook')
     private readonly itemModel: Model<Item>,
+    private readonly marketAlertService: MarketAlertService,
   ) {}
 
   async ingestChat(chat: GameMarketChatInput) {
     return this.ingestChats([chat]);
   }
 
-  async ingestChats(chats: GameMarketChatInput[]) {
+  /**
+   * @param options.notify 시세 알림 발송 여부. 과거 채팅을 다시 밀어 넣는
+   * 백필에서는 false로 꺼야 한다. (매물 나이 가드가 있어 이중 방어)
+   */
+  async ingestChats(
+    chats: GameMarketChatInput[],
+    options: { notify?: boolean } = {},
+  ): Promise<IngestChatsResult> {
     const shouts = chats.filter((chat) => chat.type === '사자후');
-    if (!shouts.length) return { processed: 0, parsed: 0 };
+    if (!shouts.length) return { processed: 0, parsed: 0, inserted: [] };
     const existing = await this.ingestionModel
       .find({
         sourceMessageId: { $in: shouts.map((chat) => chat.sourceMessageId) },
@@ -103,17 +128,29 @@ export class GameMarketService {
     const pending = shouts.filter(
       (chat) => !processedIds.has(chat.sourceMessageId),
     );
-    if (!pending.length) return { processed: 0, parsed: 0 };
+    if (!pending.length) return { processed: 0, parsed: 0, inserted: [] };
 
     const catalog = await this.loadCatalog();
     const parsedMessages = pending.map((chat) => ({
       chat,
       quotes: parseMarketMessage(chat.content, catalog),
     }));
-    const operations = parsedMessages.flatMap(({ chat, quotes }) => {
-      const observedAt = chat.createdAt ?? new Date();
-      return quotes.map((quote) => {
-        const fingerprint = this.createFingerprint(chat, quote);
+    // bulkWrite 결과의 upsertedIds는 operations 배열의 인덱스를 키로 돌려준다.
+    // 같은 순서의 원본 배열을 따로 들고 있어야 어떤 매물이 신규였는지 되짚을 수 있다.
+    const entries: ParsedQuoteEntry[] = parsedMessages.flatMap(
+      ({ chat, quotes }) => {
+        const observedAt = chat.createdAt ?? new Date();
+        return quotes.map((quote) => ({
+          chat,
+          quote,
+          observedAt,
+          fingerprint: this.createFingerprint(chat, quote),
+        }));
+      },
+    );
+
+    const operations = entries.map(
+      ({ chat, quote, observedAt, fingerprint }) => {
         return {
           updateOne: {
             filter: { fingerprint },
@@ -155,11 +192,25 @@ export class GameMarketService {
             upsert: true,
           },
         };
-      });
-    });
+      },
+    );
 
+    // 같은 사람이 같은 매물을 같은 값에 반복해 외치면 지문이 같아 seenCount만 오른다.
+    // 알림 중복은 조건별 지문 기록이 맡으므로, 여기서 가려낸 신규 여부는 적재 통계용이다.
+    let insertedEntries: ParsedQuoteEntry[] = [];
     if (operations.length) {
-      await this.quoteModel.bulkWrite(operations, { ordered: false });
+      const result = await this.quoteModel.bulkWrite(operations, {
+        ordered: false,
+      });
+      insertedEntries = Object.keys(result.upsertedIds)
+        .map((index) => entries[Number(index)])
+        .filter((entry): entry is ParsedQuoteEntry => entry != null);
+    }
+
+    if (entries.length) {
+      this.logger.log(
+        `시세 적재: 메시지 ${pending.length}건 / 파싱 ${entries.length}건 / 신규 ${insertedEntries.length}건`,
+      );
     }
     try {
       await this.ingestionModel.insertMany(
@@ -174,12 +225,36 @@ export class GameMarketService {
       // 동일 원문을 동시에 처리한 경우 unique 인덱스가 마지막 방어선이다.
       if ((error as { code?: number })?.code !== 11000) throw error;
     }
+
+    // 신규 매물뿐 아니라 재광고분도 넘긴다. 조건별로 이미 알린 지문을 기억하는
+    // 쪽이 중복을 막으므로, 조건을 걸기 전부터 광고 중이던 매물도 다룰 수 있다.
+    if (options.notify !== false && entries.length) {
+      try {
+        await this.marketAlertService.processNewQuotes(entries);
+      } catch (error) {
+        // 알림 실패가 시세 적재를 되돌려서는 안 된다.
+        this.logger.error(
+          '시세 알림 처리 실패',
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+
     return {
       processed: pending.length,
-      parsed: parsedMessages.reduce(
-        (sum, entry) => sum + entry.quotes.length,
-        0,
-      ),
+      parsed: entries.length,
+      // 신규로 꽂힌 매물. 다음 단계에서 시세 알림 매칭 입력으로 쓴다.
+      inserted: insertedEntries,
+    };
+  }
+
+  /** 파서가 만들어내는 정규화된 염색 이름. 알림 조건 등록 UI가 쓴다. */
+  getDyeNames() {
+    return {
+      items: MARKET_DYE_ALIASES.map((rule) => ({
+        name: rule.canonicalName,
+        premium: PREMIUM_DYE_NAMES.has(rule.canonicalName),
+      })),
     };
   }
 
@@ -234,7 +309,7 @@ export class GameMarketService {
         buy: [],
         lastSeenAt: quote.lastSeenAt,
       };
-      current[quote.side as MarketSide].push({
+      current[quote.side].push({
         price: quote.priceAmount,
         at: quote.lastSeenAt,
       });
