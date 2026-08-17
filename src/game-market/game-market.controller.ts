@@ -1,5 +1,6 @@
 import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
 import {
+  QueryGameMarketHistoryDto,
   QueryGameMarketOverviewDto,
   QueryGameMarketQuotesDto,
 } from './dto/query-game-market.dto';
@@ -47,5 +48,19 @@ export class GameMarketController {
     query: QueryGameMarketQuotesDto,
   ) {
     return this.gameMarketService.getQuotes(query);
+  }
+
+  @Get('history')
+  getHistory(
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: QueryGameMarketHistoryDto,
+  ) {
+    return this.gameMarketService.getHistory(query);
   }
 }

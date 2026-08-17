@@ -194,3 +194,120 @@ describe('GameMarketService.ingestChats 알림 연결', () => {
     expect(result.inserted).toHaveLength(1);
   });
 });
+
+interface StoredQuote {
+  side: 'sell' | 'buy';
+  priceAmount: number;
+  lastSeenAt: Date;
+}
+
+/** find 체인만 흉내 내는 읽기 전용 서비스. 적재 의존성은 쓰이지 않는다. */
+function makeHistoryService(quotes: StoredQuote[]) {
+  const quoteModel = {
+    find: jest.fn(() => ({
+      sort: () => ({
+        limit: () => ({
+          select: () => ({ lean: () => ({ exec: () => quotes }) }),
+        }),
+      }),
+    })),
+  };
+
+  const service = new GameMarketService(
+    quoteModel as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  return { service, quoteModel };
+}
+
+/** 구간 경계에 걸치지 않도록 구간 한가운데쯤에 놓는다. */
+function minutesAgo(minutes: number) {
+  return new Date(Date.now() - minutes * 60 * 1000);
+}
+
+describe('GameMarketService.getHistory', () => {
+  it('구간마다 판매·구매 중앙값을 따로 담는다', async () => {
+    // 1d는 24구간(1시간)이라 30분 전은 23번, 150분 전은 21번 구간이다.
+    const { service } = makeHistoryService([
+      { side: 'sell', priceAmount: 100, lastSeenAt: minutesAgo(30) },
+      { side: 'sell', priceAmount: 200, lastSeenAt: minutesAgo(30) },
+      { side: 'buy', priceAmount: 80, lastSeenAt: minutesAgo(30) },
+      { side: 'sell', priceAmount: 300, lastSeenAt: minutesAgo(150) },
+    ]);
+
+    const result = await service.getHistory({
+      itemId: 2,
+      currency: 'gold',
+      period: '1d',
+    });
+
+    expect(result.points).toHaveLength(24);
+    expect(result.points[23].sell).toMatchObject({
+      medianPrice: 150,
+      sampleCount: 2,
+    });
+    expect(result.points[23].buy).toMatchObject({
+      medianPrice: 80,
+      sampleCount: 1,
+    });
+    expect(result.points[21].sell).toMatchObject({
+      medianPrice: 300,
+      sampleCount: 1,
+    });
+  });
+
+  it('관측이 없는 구간은 표본 0으로 비워 둔다', async () => {
+    const { service } = makeHistoryService([
+      { side: 'sell', priceAmount: 100, lastSeenAt: minutesAgo(30) },
+    ]);
+
+    const result = await service.getHistory({
+      itemId: 2,
+      currency: 'gold',
+      period: '1d',
+    });
+
+    expect(result.points[22].sell.sampleCount).toBe(0);
+    expect(result.points[22].sell.medianPrice).toBeNull();
+    expect(result.points[0].buy.sampleCount).toBe(0);
+  });
+
+  it('기간이 구간 수를 정한다', async () => {
+    const { service } = makeHistoryService([]);
+
+    const result = await service.getHistory({
+      itemId: 2,
+      currency: 'gold',
+      period: '90d',
+    });
+
+    expect(result.points).toHaveLength(45);
+  });
+
+  it('금전 시세는 형변·고급염색 매물을 뺀다', async () => {
+    const { service, quoteModel } = makeHistoryService([]);
+
+    await service.getHistory({ itemId: 2, currency: 'gold', period: '7d' });
+
+    expect(quoteModel.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 2,
+        currency: 'gold',
+        excludedFromGeneral: { $ne: true },
+      }),
+    );
+  });
+
+  it('현금 시세는 제외 필터를 걸지 않는다', async () => {
+    const { service, quoteModel } = makeHistoryService([]);
+
+    await service.getHistory({ itemId: 2, currency: 'cash', period: '7d' });
+
+    expect(quoteModel.find).toHaveBeenCalledWith(
+      expect.not.objectContaining({ excludedFromGeneral: expect.anything() }),
+    );
+  });
+});

@@ -70,3 +70,28 @@ export class QueryGameMarketQuotesDto {
   @Max(100)
   limit = 30;
 }
+
+/** 아이템 하나의 가격 추이 차트용. 구간 수는 기간이 정하므로 limit이 없다. */
+export class QueryGameMarketHistoryDto {
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(0)
+  itemId: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  itemName?: string;
+
+  @IsOptional()
+  @IsIn(GAME_MARKET_CURRENCIES)
+  currency: GameMarketCurrency = 'gold';
+
+  @IsOptional()
+  @IsIn(GAME_MARKET_PERIODS)
+  period: GameMarketPeriod = '7d';
+
+  @IsOptional()
+  @IsIn(['sell', 'buy'])
+  side?: 'sell' | 'buy';
+}

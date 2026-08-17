@@ -18,6 +18,7 @@ import { MarketAlertService } from '../market-alert/market-alert.service';
 import { GameMarketIngestion, GameMarketQuote } from './game-market.schema';
 import {
   GameMarketPeriod,
+  QueryGameMarketHistoryDto,
   QueryGameMarketOverviewDto,
   QueryGameMarketQuotesDto,
 } from './dto/query-game-market.dto';
@@ -62,6 +63,17 @@ const PERIOD_DAYS: Record<GameMarketPeriod, number> = {
 };
 const CATALOG_TTL_MS = 10 * 60 * 1000;
 const OVERVIEW_SCAN_LIMIT = 50_000;
+/**
+ * 상세 차트의 구간 수. 목록의 스파크라인(12구간)보다 촘촘하되, 사자후 호가가
+ * 성기게 들어오는 점을 감안해 구간 하나가 최소 한 시간은 되도록 잡았다.
+ */
+const HISTORY_BUCKETS: Record<GameMarketPeriod, number> = {
+  '1d': 24,
+  '7d': 28,
+  '30d': 30,
+  '90d': 45,
+};
+const HISTORY_SCAN_LIMIT = 5_000;
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -391,6 +403,74 @@ export class GameMarketService {
       firstSeenAt: quote.firstSeenAt.toISOString(),
       lastSeenAt: quote.lastSeenAt.toISOString(),
     }));
+  }
+
+  /**
+   * 아이템 하나의 가격 추이. 목록 행을 펼쳤을 때 그리는 상세 차트가 쓴다.
+   *
+   * 목록의 spark는 우세한 한쪽만 12구간으로 보여주지만, 여기서는 판매·구매를
+   * 각각 돌려주고 구간마다 중앙값과 함께 관측 범위(toStats의 중앙 80%)까지
+   * 담아 호가가 얼마나 흩어져 있었는지도 볼 수 있게 한다.
+   */
+  async getHistory(query: QueryGameMarketHistoryDto) {
+    const since = this.getSince(query.period);
+    const until = new Date();
+    const filter: FilterQuery<GameMarketQuote> = {
+      parserVersion: GAME_MARKET_RULE_VERSION,
+      itemId: query.itemId,
+      currency: query.currency,
+      lastSeenAt: { $gte: since },
+    };
+    if (query.itemName) filter.itemName = query.itemName;
+    if (query.currency === 'gold') filter.excludedFromGeneral = { $ne: true };
+    if (query.side) filter.side = query.side;
+
+    const quotes = await this.quoteModel
+      .find(filter)
+      .sort({ lastSeenAt: -1 })
+      .limit(HISTORY_SCAN_LIMIT)
+      .select({ side: 1, priceAmount: 1, lastSeenAt: 1 })
+      .lean()
+      .exec();
+
+    const bucketCount = HISTORY_BUCKETS[query.period];
+    const bucketMs =
+      Math.max(1, until.getTime() - since.getTime()) / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({
+      sell: [] as Array<{ price: number; at: Date }>,
+      buy: [] as Array<{ price: number; at: Date }>,
+    }));
+
+    for (const quote of quotes) {
+      const index = Math.max(
+        0,
+        Math.min(
+          bucketCount - 1,
+          Math.floor((quote.lastSeenAt.getTime() - since.getTime()) / bucketMs),
+        ),
+      );
+      buckets[index][quote.side].push({
+        price: quote.priceAmount,
+        at: quote.lastSeenAt,
+      });
+    }
+
+    return {
+      itemId: query.itemId,
+      itemName: query.itemName ?? null,
+      currency: query.currency,
+      period: query.period,
+      since: since.toISOString(),
+      until: until.toISOString(),
+      bucketMs: Math.round(bucketMs),
+      truncated: quotes.length === HISTORY_SCAN_LIMIT,
+      points: buckets.map((bucket, index) => ({
+        // 구간 한가운데 시각. 차트가 점을 찍는 x좌표로 그대로 쓴다.
+        at: new Date(since.getTime() + bucketMs * (index + 0.5)).toISOString(),
+        sell: this.toStats(bucket.sell),
+        buy: this.toStats(bucket.buy),
+      })),
+    };
   }
 
   private getSince(period: GameMarketPeriod) {
