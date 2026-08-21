@@ -32,6 +32,12 @@ describe('OldBaramRendererService', () => {
     // 통파일에 실린 아이템 수. '없음'(-1)은 목록이 아니라 화면에서 얹는다.
     expect(options.parts.weapon).toHaveLength(219);
     expect(options.parts.shield).toHaveLength(21);
+    expect(options.states).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'bow', label: '활', frames: 4 }),
+        expect.objectContaining({ key: 'riding', label: '말타기', frames: 4 }),
+      ]),
+    );
     // 15번은 12번과 똑같이 그려져(구분해 줄 머리가 원본에 없다) 고를 수 없다.
     expect(options.emotes).not.toContain(15);
     expect(options.emotes).toHaveLength(15);
@@ -84,6 +90,24 @@ describe('OldBaramRendererService', () => {
     expect(pose(0).equals(pose(2))).toBe(false);
     expect(pose(0).equals(pose(4))).toBe(true);
   });
+
+  it.each([
+    ['bow', '활'],
+    ['riding', '말타기'],
+  ] as const)(
+    'renders the embedded %s sprite as a four-frame loop',
+    (state, _label) => {
+      const pose = (frame: number) =>
+        service.render({ ...WALKER, state, direction: 1, frame });
+
+      // 통짜 갑옷 스프라이트의 서기 - 한쪽 발 - 서기 - 반대쪽 발 순서다.
+      expect(pose(0).equals(pose(2))).toBe(true);
+      expect(pose(0).equals(pose(1))).toBe(false);
+      expect(pose(0).equals(pose(3))).toBe(false);
+      expect(pose(1).equals(pose(3))).toBe(false);
+      expect(pose(0).equals(pose(4))).toBe(true);
+    },
+  );
 
   /*
    * 머리 리소스에는 액션 149번까지만 있어 감정표현 12~15는 머리가 통째로 빠져 있었다.

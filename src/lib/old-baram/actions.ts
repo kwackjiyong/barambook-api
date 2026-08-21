@@ -19,6 +19,8 @@ export type OldBaramState =
   | 'stand'
   | 'move'
   | 'attack'
+  | 'bow'
+  | 'riding'
   | 'cast'
   | 'pickup'
   | 'eat'
@@ -44,10 +46,7 @@ export const STAND_ACTIONS: Record<number, DirectionTable> = {
   4: byDirection(80, 83, 86, 89),
 };
 
-export const MOVE_ACTIONS: Record<
-  number,
-  Record<number, DirectionTable>
-> = {
+export const MOVE_ACTIONS: Record<number, Record<number, DirectionTable>> = {
   0: {
     0: byDirection(1, 4, 7, 10),
     1: STAND_ACTIONS[0],
@@ -75,10 +74,7 @@ export const MOVE_ACTIONS: Record<
   },
 };
 
-export const ATTACK_ACTIONS: Record<
-  number,
-  Record<number, DirectionTable>
-> = {
+export const ATTACK_ACTIONS: Record<number, Record<number, DirectionTable>> = {
   0: {
     0: byDirection(24, 26, 28, 30),
     1: byDirection(25, 27, 29, 31),
@@ -106,6 +102,13 @@ export const ATTACK_ACTIONS: Record<
  */
 export const MOVE_POSES = [0, 1, 2, 1] as const;
 
+/**
+ * 활·말타기 버튼의 재생 순서.
+ * 두 동작은 별도 파츠가 아니라 갑옷에 통째로 그려진 자세이며, 버튼을 누른 직후에는
+ * 안정된 서기 프레임을 보여 준 뒤 양쪽 발 자세를 번갈아 재생한다.
+ */
+export const SPECIAL_POSES = [1, 0, 1, 2] as const;
+
 export const CAST_ACTION = byDirection(72, 73, 74, 75);
 export const PICK_UP_ACTION = byDirection(76, 77, 78, 79);
 export const EAT_ACTION = byDirection(92, 92, 92, 92);
@@ -127,12 +130,7 @@ export const EMOTE_ACTIONS: Record<number, EmoteTable> = (() => {
   }
   emotes[9] = byDirection(position, position, position, position);
   position += 1;
-  emotes[10] = byDirection(
-    position,
-    position + 1,
-    position + 2,
-    position + 3,
-  );
+  emotes[10] = byDirection(position, position + 1, position + 2, position + 3);
   position += 4;
   emotes[11] = {
     0: byDirection(position, position, position, position),
@@ -223,6 +221,8 @@ export const STATES: ReadonlyArray<{
   { key: 'stand', label: '서기', frames: 1 },
   { key: 'move', label: '걷기', frames: MOVE_POSES.length },
   { key: 'attack', label: '공격', frames: 2 },
+  { key: 'bow', label: '활', frames: SPECIAL_POSES.length },
+  { key: 'riding', label: '말타기', frames: SPECIAL_POSES.length },
   { key: 'cast', label: '주문', frames: 1 },
   { key: 'pickup', label: '줍기', frames: 1 },
   { key: 'eat', label: '먹기', frames: 1 },
@@ -272,6 +272,14 @@ export function resolveActionId({
       ]?.[direction];
     case 'attack':
       return ATTACK_ACTIONS[weaponType]?.[frame % 2]?.[direction];
+    case 'bow':
+      return MOVE_ACTIONS[3]?.[SPECIAL_POSES[frame % SPECIAL_POSES.length]]?.[
+        direction
+      ];
+    case 'riding':
+      return MOVE_ACTIONS[4]?.[SPECIAL_POSES[frame % SPECIAL_POSES.length]]?.[
+        direction
+      ];
     case 'cast':
       return CAST_ACTION[direction];
     case 'pickup':
@@ -292,4 +300,3 @@ export function resolveActionId({
     }
   }
 }
-

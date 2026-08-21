@@ -11,6 +11,7 @@ import {
   PART_SHIELD,
   PART_WEAPON,
   STATES,
+  SPECIAL_POSES,
   resolveActionId,
   type OldBaramState,
   weaponPartOf,
@@ -146,13 +147,11 @@ class RgbaSurface implements PixelSurface {
       (red * sourceAlpha + this.rgba[offset] * destinationAlpha) / outputAlpha,
     );
     this.rgba[offset + 1] = Math.round(
-      (green * sourceAlpha +
-        this.rgba[offset + 1] * destinationAlpha) /
+      (green * sourceAlpha + this.rgba[offset + 1] * destinationAlpha) /
         outputAlpha,
     );
     this.rgba[offset + 2] = Math.round(
-      (blue * sourceAlpha +
-        this.rgba[offset + 2] * destinationAlpha) /
+      (blue * sourceAlpha + this.rgba[offset + 2] * destinationAlpha) /
         outputAlpha,
     );
     this.rgba[offset + 3] = Math.round(outputAlpha * 255);
@@ -177,6 +176,7 @@ function findPackPath(): string {
 
 function frameCountFor(state: OldBaramState, emote: number): number {
   if (state === 'move') return MOVE_POSES.length;
+  if (state === 'bow' || state === 'riding') return SPECIAL_POSES.length;
   if (state === 'attack') return 2;
   if (state === 'emote' && emote === 11) return 4;
   return 1;
@@ -275,9 +275,7 @@ export class OldBaramRenderer {
     const sections = readObp(bytes);
     const epf = {} as Record<PartKey, EpfImage>;
     for (const partKey of PART_KEYS) {
-      epf[partKey] = new EpfImage(
-        requireSection(sections, `epf/${partKey}`),
-      );
+      epf[partKey] = new EpfImage(requireSection(sections, `epf/${partKey}`));
     }
     const shadowEpf = new EpfImage(requireSection(sections, 'epf/shadow'));
     this.pack = {
@@ -715,7 +713,8 @@ export class OldBaramRenderer {
         throw new RangeError(`${name}은 정수여야 합니다.`);
       }
     }
-    if (normalized.frame < 0) throw new RangeError('frame은 0 이상이어야 합니다.');
+    if (normalized.frame < 0)
+      throw new RangeError('frame은 0 이상이어야 합니다.');
     if (normalized.emote < 0 || normalized.emote > 15) {
       throw new RangeError('emote는 0~15여야 합니다.');
     }
@@ -750,9 +749,7 @@ export class OldBaramRenderer {
       throw new RangeError(`${partKey} ${itemId}번 아이템이 없습니다.`);
     }
     if (!item.dyes.includes(dye)) {
-      throw new RangeError(
-        `${partKey} ${itemId}번에 염색 ${dye}가 없습니다.`,
-      );
+      throw new RangeError(`${partKey} ${itemId}번에 염색 ${dye}가 없습니다.`);
     }
   }
 
@@ -768,10 +765,6 @@ export class OldBaramRenderer {
   private weaponResource(weaponId: number, dye: number): PartResource | null {
     const partKey = weaponPartOf(weaponId);
     if (!partKey) return null;
-    return this.partResource(
-      partKey,
-      weaponId - weaponOffset(partKey),
-      dye,
-    );
+    return this.partResource(partKey, weaponId - weaponOffset(partKey), dye);
   }
 }
