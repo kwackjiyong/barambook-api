@@ -10,7 +10,23 @@ GET /renderer/old-baram/options
 ```
 
 머리, 갑옷, 무기, 방패의 ID와 사용 가능한 염색 번호, 동작 및 방향 목록을
-JSON으로 반환한다.
+JSON으로 반환한다. 메월 `ItemInfo`에서 이름을 찾을 수 있는 갑옷·무기·방패는
+`names`에 염색 번호별 이름과 같은 외형을 공유하는 별칭도 함께 담는다.
+머리는 아이템이 아닌 캐릭터 헤어 번호라 원본 명칭이 없고, 이름을 찾지 못한
+리소스도 `names` 없이 번호만 반환한다.
+
+```json
+{
+  "id": 1,
+  "dyes": [0, 1],
+  "names": {
+    "0": ["목도", "목검", "사두목도", "사두목검", "뢰진도", "뇌진도"]
+  }
+}
+```
+
+명칭 자산은 `src/assets/dat/old-baram-item-names.json`이며, 메월 원본에서 다시
+만들 때는 `barambook-render-app/scripts/export-old-baram-item-names.mjs`를 사용한다.
 
 ## 염색 목록
 

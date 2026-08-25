@@ -32,6 +32,22 @@ describe('OldBaramRendererService', () => {
     // 통파일에 실린 아이템 수. '없음'(-1)은 목록이 아니라 화면에서 얹는다.
     expect(options.parts.weapon).toHaveLength(219);
     expect(options.parts.shield).toHaveLength(21);
+    expect(options.parts.head[0]).not.toHaveProperty('names');
+    expect(
+      options.parts.body.find((item) => item.id === 2)?.names?.['0'],
+    ).toEqual(['연두색남자도복']);
+    expect(options.parts.body.find((item) => item.id === 0)).not.toHaveProperty(
+      'names',
+    );
+    expect(
+      options.parts.weapon.find((item) => item.id === 1)?.names?.['0'],
+    ).toEqual(expect.arrayContaining(['목도', '목검', '뢰진도']));
+    expect(
+      options.parts.weapon.find((item) => item.id === 10_000)?.names?.['0'],
+    ).toEqual(['장창']);
+    expect(
+      options.parts.shield.find((item) => item.id === 1)?.names?.['0'],
+    ).toEqual(['나무방패']);
     expect(options.states).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'bow', label: '활', frames: 4 }),

@@ -18,6 +18,12 @@ import {
   weaponTypeOf,
 } from './actions';
 import { EpfImage, type OldBaramPalette, type PixelSurface } from './epf-image';
+import {
+  loadOldBaramItemNames,
+  namesOf,
+  type OldBaramItemNamesDocument,
+  type OldBaramNamedPart,
+} from './item-names';
 import { stampWatermark } from './watermark';
 import {
   readAnim,
@@ -265,12 +271,14 @@ function weaponOffset(partKey: 'sword' | 'spear' | 'fan'): number {
 
 export class OldBaramRenderer {
   private pack: LoadedPack | null = null;
+  private itemNames: OldBaramItemNamesDocument | null = null;
   private readonly pngCache = new Map<string, Buffer>();
   private readonly windowCache = new Map<string, FrameWindow>();
 
   load(): void {
     if (this.pack) return;
     const filePath = findPackPath();
+    const itemNames = loadOldBaramItemNames();
     const bytes = new Uint8Array(fs.readFileSync(filePath));
     const sections = readObp(bytes);
     const epf = {} as Record<PartKey, EpfImage>;
@@ -293,15 +301,26 @@ export class OldBaramRenderer {
       shadowEpf,
       epf,
     };
+    this.itemNames = itemNames;
   }
 
   getOptions() {
     const pack = this.requirePack();
-    const items = (partKey: PartKey) =>
-      (pack.meta.parts[partKey]?.items ?? []).map((item) => ({
-        id: item.id,
-        dyes: item.dyes,
-      }));
+    const itemNames = this.requireItemNames();
+    const items = (
+      partKey: PartKey,
+      namedPart?: OldBaramNamedPart,
+      offset = 0,
+    ) =>
+      (pack.meta.parts[partKey]?.items ?? []).map((item) => {
+        const id = item.id + offset;
+        const names = namedPart ? namesOf(itemNames, namedPart, id) : undefined;
+        return {
+          id,
+          dyes: item.dyes,
+          ...(names ? { names } : {}),
+        };
+      });
     const weapons = (
       [
         ['sword', 0],
@@ -310,11 +329,12 @@ export class OldBaramRenderer {
       ] as const
     )
       .flatMap(([partKey, offset]) =>
-        items(partKey).map((item) => ({
-          id: item.id + offset,
+        items(partKey, 'weapon', offset).map((item) => ({
+          id: item.id,
           part: partKey,
-          rawId: item.id,
+          rawId: item.id - offset,
           dyes: item.dyes,
+          ...('names' in item ? { names: item.names } : {}),
         })),
       )
       .sort((left, right) => left.id - right.id);
@@ -330,9 +350,9 @@ export class OldBaramRenderer {
       },
       parts: {
         head: items('head'),
-        body: items('body'),
+        body: items('body', 'body'),
         weapon: weapons,
-        shield: items('shield'),
+        shield: items('shield', 'shield'),
       },
       states: STATES,
       directions: DIRECTIONS,
@@ -348,6 +368,13 @@ export class OldBaramRenderer {
         height: pack.frameWindow.height,
       },
     };
+  }
+
+  private requireItemNames(): OldBaramItemNamesDocument {
+    if (!this.itemNames) this.load();
+    if (!this.itemNames)
+      throw new Error('옛날바람 아이템 이름을 불러오지 못했습니다.');
+    return this.itemNames;
   }
 
   render(request: OldBaramRenderRequest): Buffer {
