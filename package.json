@@ -20,7 +20,10 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "backfill:chat-users": "ts-node scripts/backfill-v4-chat-users.ts",
     "analyze:game-market": "ts-node scripts/analyze-game-market-json.ts",
-    "backfill:game-market": "ts-node scripts/backfill-game-market-json.ts"
+    "backfill:game-market": "ts-node scripts/backfill-game-market-json.ts",
+    "import:old-baram-items": "ts-node scripts/import-old-baram-items.ts",
+    "migrate:old-baram-item-percent-fields": "ts-node scripts/migrate-old-baram-item-percent-fields.ts",
+    "import:old-baram-world": "ts-node scripts/import-old-baram-world.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

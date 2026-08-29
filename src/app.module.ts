@@ -20,6 +20,10 @@ import { ChatFeedModule } from './chat-feed/chat-feed.module';
 import { HopaeModule } from './hopae/hopae.module';
 import { GameMarketModule } from './game-market/game-market.module';
 import { MarketAlertModule } from './market-alert/market-alert.module';
+import { OldBaramItemModule } from './old-baram-item/old-baram-item.module';
+import { OldBaramMobModule } from './old-baram-mob/old-baram-mob.module';
+import { OldBaramSpellModule } from './old-baram-spell/old-baram-spell.module';
+import { OldBaramMapModule } from './old-baram-map/old-baram-map.module';
 
 dotenv.config();
 
@@ -53,6 +57,10 @@ dotenv.config();
     HopaeModule,
     GameMarketModule,
     MarketAlertModule,
+    OldBaramItemModule,
+    OldBaramMobModule,
+    OldBaramSpellModule,
+    OldBaramMapModule,
   ],
   controllers: [AppController],
   providers: [AppService],
