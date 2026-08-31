@@ -23,7 +23,8 @@
     "backfill:game-market": "ts-node scripts/backfill-game-market-json.ts",
     "import:old-baram-items": "ts-node scripts/import-old-baram-items.ts",
     "migrate:old-baram-item-percent-fields": "ts-node scripts/migrate-old-baram-item-percent-fields.ts",
-    "import:old-baram-world": "ts-node scripts/import-old-baram-world.ts"
+    "import:old-baram-world": "ts-node scripts/import-old-baram-world.ts",
+    "import:gu-baram-world": "ts-node scripts/import-gu-baram-world.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -24,6 +24,10 @@ import { OldBaramItemModule } from './old-baram-item/old-baram-item.module';
 import { OldBaramMobModule } from './old-baram-mob/old-baram-mob.module';
 import { OldBaramSpellModule } from './old-baram-spell/old-baram-spell.module';
 import { OldBaramMapModule } from './old-baram-map/old-baram-map.module';
+import { GuBaramMobModule } from './gu-baram-mob/gu-baram-mob.module';
+import { GuBaramItemModule } from './gu-baram-item/gu-baram-item.module';
+import { GuBaramSkillModule } from './gu-baram-skill/gu-baram-skill.module';
+import { GuBaramShopModule } from './gu-baram-shop/gu-baram-shop.module';
 
 dotenv.config();
 
@@ -61,6 +65,10 @@ dotenv.config();
     OldBaramMobModule,
     OldBaramSpellModule,
     OldBaramMapModule,
+    GuBaramMobModule,
+    GuBaramItemModule,
+    GuBaramSkillModule,
+    GuBaramShopModule,
   ],
   controllers: [AppController],
   providers: [AppService],
