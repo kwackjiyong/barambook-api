@@ -309,6 +309,96 @@ describe('ChannelService', () => {
     expect(grounded?.isJumping).toBe(false);
   });
 
+  it('ignores direction changes until the current tile movement finishes', () => {
+    const participant = {
+      id: 'socket-1',
+      accountId: 'tester',
+      displayName: 'tester-character',
+      likeCount: 0,
+      isGuest: false,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
+      direction: 'right',
+      connectedAt: new Date().toISOString(),
+    } as any;
+
+    (service as any).participants.set(participant.id, participant);
+    (service as any).lastMovedAt.set(participant.id, Date.now());
+
+    const turned = service.moveParticipant(participant.id, {
+      dx: 0,
+      dy: -TILE_SIZE,
+      direction: 'up',
+    });
+
+    expect(turned).toBeNull();
+    expect((service as any).participants.get(participant.id)).toMatchObject({
+      x: participant.x,
+      y: participant.y,
+      direction: 'right',
+    });
+  });
+
+  it('updates jump state during movement without changing direction', () => {
+    const participant = {
+      id: 'socket-1',
+      accountId: 'tester',
+      displayName: 'tester-character',
+      likeCount: 0,
+      isGuest: false,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
+      direction: 'right',
+      connectedAt: new Date().toISOString(),
+    } as any;
+
+    (service as any).participants.set(participant.id, participant);
+    (service as any).lastMovedAt.set(participant.id, Date.now());
+
+    const jumped = service.moveParticipant(participant.id, {
+      dx: 0,
+      dy: -TILE_SIZE,
+      direction: 'up',
+      isJumping: true,
+    });
+
+    expect(jumped).toMatchObject({
+      x: participant.x,
+      y: participant.y,
+      direction: 'right',
+      isJumping: true,
+    });
+  });
+
+  it('keeps riding direction locked for the full tile animation', () => {
+    const participant = {
+      id: 'socket-1',
+      accountId: 'tester',
+      displayName: 'tester-character',
+      likeCount: 0,
+      isGuest: false,
+      x: 70 * TILE_SIZE,
+      y: 122 * TILE_SIZE,
+      direction: 'right',
+      connectedAt: new Date().toISOString(),
+    } as any;
+
+    (service as any).participants.set(participant.id, participant);
+    (service as any).lastMovedAt.set(participant.id, Date.now() - 150);
+
+    const turned = service.moveParticipant(participant.id, {
+      dx: 0,
+      dy: -TILE_SIZE,
+      direction: 'up',
+      isRiding: true,
+    });
+
+    expect(turned).toBeNull();
+    expect((service as any).participants.get(participant.id).direction).toBe(
+      'right',
+    );
+  });
+
   it('marks participants as AFK after the idle threshold and wakes them on activity', () => {
     service.addGuestParticipant('guest-socket-1', '127.0.0.1');
 

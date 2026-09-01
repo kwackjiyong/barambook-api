@@ -406,19 +406,38 @@ export class ChannelService {
     const isMoveRequested = dx !== 0 || dy !== 0;
     const isDirectionChanged = direction !== current.direction;
     const isJumpStateChanged = isJumping !== (current.isJumping === true);
+    const elapsedSinceLastMove = now - lastMovedAt;
 
-    if (now - lastMovedAt < moveCooldownMs) {
-      if (!isDirectionChanged && !isJumpStateChanged) {
+    // 말타기는 다음 칸으로 더 빨리 이동하지만 화면의 한 칸 애니메이션은 동일하게 240ms다.
+    // 그 전에 방향만 먼저 바뀌면 클라이언트 보간이 진행 동선을 잘라 대각선으로 꺾여 보인다.
+    if (
+      isDirectionChanged &&
+      elapsedSinceLastMove < ChannelService.MOVE_COOLDOWN_MS
+    ) {
+      if (!isJumpStateChanged) {
         return null;
       }
 
       const rotatedParticipant: ChannelParticipant = {
         ...current,
-        direction,
         isJumping,
       };
       this.participants.set(socketId, rotatedParticipant);
       return rotatedParticipant;
+    }
+
+    if (elapsedSinceLastMove < moveCooldownMs) {
+      // 점프 시작/종료 신호는 이동과 독립적이므로 현재 위치와 방향을 유지한 채 반영한다.
+      if (!isJumpStateChanged) {
+        return null;
+      }
+
+      const jumpedParticipant: ChannelParticipant = {
+        ...current,
+        isJumping,
+      };
+      this.participants.set(socketId, jumpedParticipant);
+      return jumpedParticipant;
     }
 
     const nextX = this.clamp(current.x + dx, 0, this.maxPositionX);
