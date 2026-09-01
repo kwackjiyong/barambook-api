@@ -29,6 +29,7 @@ import { GuBaramItemModule } from './gu-baram-item/gu-baram-item.module';
 import { GuBaramSkillModule } from './gu-baram-skill/gu-baram-skill.module';
 import { GuBaramShopModule } from './gu-baram-shop/gu-baram-shop.module';
 import { GachaModule } from './gacha/gacha.module';
+import { MazeModule } from './maze/maze.module';
 
 dotenv.config();
 
@@ -71,6 +72,7 @@ dotenv.config();
     GuBaramSkillModule,
     GuBaramShopModule,
     GachaModule,
+    MazeModule,
   ],
   controllers: [AppController],
   providers: [AppService],
