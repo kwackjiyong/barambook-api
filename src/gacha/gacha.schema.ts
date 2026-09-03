@@ -76,6 +76,11 @@ export class GachaGroup extends Document {
   // CashItem.GachaLink — 넥슨 확률 공시 페이지.
   @Prop()
   gachaLink?: string;
+
+  // 원본 Gacha 표에서 이 그룹이 처음 나오는 행 Id. 행 번호는 추가된 순서라 사실상
+  // 시간순이고, 목록을 최신순으로 세우는 키로 쓴다(없으면 groupId로 대신한다).
+  @Prop({ index: true })
+  firstId?: number;
 }
 
 export const GachaGroupSchema = SchemaFactory.createForClass(GachaGroup);

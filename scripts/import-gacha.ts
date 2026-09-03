@@ -47,6 +47,30 @@ interface RawGroup {
   groupId: number;
   memos: string[];
   entries: RawEntry[];
+  /** 원본에서 처음 나오는 행 Id. 추가 순서라 시간순 정렬 키로 쓴다. */
+  firstId: number;
+}
+
+// 현재 이벤트가 과거 확률표를 그대로 재사용하면서 원본 Memo는 갱신하지 않은 경우다.
+// 1017은 "돌아온 윤도 이벤트"로 남아 있지만, 101개 보상(현철과 돌아온3 선택권 포함)이
+// 2026-08-20 시작한 "돌아온 붉은봉투" 공지의 보상 목록과 일치한다.
+function displayNameOf(group: RawGroup, items: GachaGroupItemLike[]) {
+  const memo = group.memos[0] ?? '';
+  if (
+    group.groupId === 1017 &&
+    memo === '돌아온 윤도 이벤트' &&
+    items.length === 101 &&
+    items.some((item) => item.name === '현철') &&
+    items.some((item) => item.name === '[돌아온3]호박결정선택권') &&
+    items.some((item) => item.name === '[돌아온3]호박단추선택권')
+  ) {
+    return '돌아온 붉은봉투 이벤트';
+  }
+  return memo || `뽑기 그룹 ${group.groupId}`;
+}
+
+interface GachaGroupItemLike {
+  name: string;
 }
 
 function readGroups(): Map<number, RawGroup> {
@@ -58,11 +82,18 @@ function readGroups(): Map<number, RawGroup> {
   for (const row of gacha.rows) {
     const groupId = Number(row[index.GroupId]);
     if (!Number.isFinite(groupId)) continue;
+    const rowId = Number(row[index.Id]);
     let group = groups.get(groupId);
     if (!group) {
-      group = { groupId, memos: [], entries: [] };
+      group = {
+        groupId,
+        memos: [],
+        entries: [],
+        firstId: Number.isFinite(rowId) ? rowId : groupId,
+      };
       groups.set(groupId, group);
     }
+    if (Number.isFinite(rowId) && rowId < group.firstId) group.firstId = rowId;
     const memo = String(row[index.Memo] ?? '').trim();
     if (memo && !group.memos.includes(memo)) group.memos.push(memo);
     group.entries.push({
@@ -148,7 +179,7 @@ function build() {
     let name =
       pickupBuilt && pickupBuilt.items.length > 0
         ? `픽업 뽑기 — ${pickupBuilt.items.map((item) => item.name).join(' · ')}`
-        : memo || `뽑기 그룹 ${group.groupId}`;
+        : displayNameOf(group, items);
     // 청명의관문 100위 보상이 1막·2막 두 그룹인데 메모가 같다. 2막은 아이템에
     // [청명2] 접두가 붙어 있어 그걸로 갈라 적는다.
     if (memo === '청명의관문 100위 보상') {
@@ -159,6 +190,7 @@ function build() {
 
     return {
       groupId: group.groupId,
+      firstId: group.firstId,
       name,
       memos: group.memos,
       category: categoryOf(group.groupId, memo),
@@ -184,7 +216,7 @@ async function main() {
   for (const document of documents) {
     console.log(
       `  ${String(document.groupId).padStart(6)} [${document.category}] ${document.name}` +
-        ` — 항목 ${document.itemCount}` +
+        ` — 항목 ${document.itemCount} (행 ${document.firstId}~)` +
         (document.bonusItems.length
           ? ` +보너스 ${document.bonusItems.length}`
           : '') +

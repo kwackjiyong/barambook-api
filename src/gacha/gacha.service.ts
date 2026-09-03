@@ -9,6 +9,12 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// 최신순 키. 원본 첫 행 Id가 있으면 그것, 아직 없는 문서는 groupId(분류 안에서는
+// 이것도 대체로 추가 순서다)로 대신한다.
+function recency(row: { firstId?: number; groupId: number }) {
+  return row.firstId ?? row.groupId;
+}
+
 @Injectable()
 export class GachaService {
   constructor(
@@ -39,16 +45,18 @@ export class GachaService {
         category: 1,
         itemCount: 1,
         gachaLink: 1,
+        firstId: 1,
         'pickupItems.name': 1,
         'bonusItems.name': 1,
       })
       .lean()
       .exec();
 
+    // 분류 순서 → 같은 분류 안에서는 최신(원본 행 Id가 큰 것)이 먼저.
     rows.sort(
       (a, b) =>
         GACHA_CATEGORY_ORDER[a.category] - GACHA_CATEGORY_ORDER[b.category] ||
-        a.groupId - b.groupId,
+        recency(b) - recency(a),
     );
 
     return { groups: rows };
@@ -79,6 +87,7 @@ export class GachaService {
         groupId: 1,
         name: 1,
         category: 1,
+        firstId: 1,
         items: 1,
         pickupItems: 1,
         bonusItems: 1,
@@ -94,6 +103,7 @@ export class GachaService {
         groupId: group.groupId,
         name: group.name,
         category: group.category,
+        firstId: group.firstId,
         via: item ? 'item' : pickup ? 'pickup' : 'bonus',
         chance: item?.chance ?? pickup?.chance ?? null,
       };
@@ -102,7 +112,7 @@ export class GachaService {
       (a, b) =>
         GACHA_CATEGORY_ORDER[a.category as GachaGroup['category']] -
           GACHA_CATEGORY_ORDER[b.category as GachaGroup['category']] ||
-        a.groupId - b.groupId,
+        recency(b) - recency(a),
     );
     return { itemName: name, groups: matches };
   }
