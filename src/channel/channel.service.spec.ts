@@ -446,6 +446,166 @@ describe('ChannelService', () => {
     expect(awakened?.isAfk).toBe(false);
   });
 
+  describe('training dummy', () => {
+    const getParticipant = (socketId: string) =>
+      service
+        .getBootstrapPayload(socketId)
+        .participants.find((participant) => participant.id === socketId)!;
+
+    it('spawns one dummy in front of the summoner and replaces the previous one', () => {
+      service.addParticipant(createMember('owner'), 'socket-owner', 0);
+      const participant = getParticipant('socket-owner');
+
+      const first = service.spawnTrainingDummy('socket-owner', {
+        maxHp: 5000,
+        ac: -20,
+      });
+      expect(first.error).toBeUndefined();
+      expect(first.dummy?.kind).toBe('dummy');
+      expect(first.dummy?.ownerId).toBe('socket-owner');
+      expect(first.dummy?.hp).toBe(5000);
+      expect(first.dummy?.maxHp).toBe(5000);
+      expect(first.dummy?.ac).toBe(-20);
+      // 참가자와 다른 칸(앞 칸 또는 그 주변)에 놓인다.
+      expect(
+        Math.max(
+          Math.abs((first.dummy?.x ?? 0) - participant.x),
+          Math.abs((first.dummy?.y ?? 0) - participant.y),
+        ),
+      ).toBeGreaterThanOrEqual(TILE_SIZE);
+
+      const second = service.spawnTrainingDummy('socket-owner', {
+        name: '해적오두목',
+        renderId: 300,
+        renderColor: 2,
+      });
+      expect(second.replaced?.id).toBe(first.dummy?.id);
+      expect(second.dummy?.maxHp).toBe(100_000_000);
+      expect(second.dummy?.name).toBe('해적오두목');
+      expect(second.dummy?.renderId).toBe(300);
+      expect(second.dummy?.renderColor).toBe(2);
+      // 범위 밖 렌더 id는 목각인형으로 돌아간다.
+      const third = service.spawnTrainingDummy('socket-owner', {
+        renderId: 9999,
+      });
+      expect(third.dummy?.renderId).toBe(192);
+      expect(third.dummy?.name).toBe('허수아비');
+      expect(
+        getMonsters(service).filter((m) => m.kind === 'dummy'),
+      ).toHaveLength(1);
+    });
+
+    it('takes damage from anyone nearby, survives normal attacks, and falls at 0 HP', () => {
+      service.addParticipant(createMember('owner'), 'socket-owner', 0);
+      service.addParticipant(createMember('other'), 'socket-other', 0);
+      const dummy = service.spawnTrainingDummy('socket-owner', {
+        maxHp: 100,
+      }).dummy!;
+
+      // 일반 평타 판정(render-sync)으로는 사라지지 않는다.
+      const owner = getParticipant('socket-owner');
+      const renderState = {
+        ...(owner.renderState ?? {
+          head: 0,
+          headc: 0,
+          body: 0,
+          bodyc: 0,
+          weapon: 0,
+          weaponc: 0,
+          shield: 0,
+          shieldc: 0,
+        }),
+        attackSequence: 1,
+        attackExpiresAt: new Date(Date.now() + 1000).toISOString(),
+      };
+      expect(
+        service.updateParticipantRender('socket-owner', renderState)
+          .removedMonster,
+      ).toBeUndefined();
+      expect(getMonsters(service).some((m) => m.id === dummy.id)).toBe(true);
+
+      // 다른 참가자는 아무 데나 접속하므로 허수아비 옆으로 옮겨 놓고 때린다.
+      const participants = (
+        service as unknown as {
+          participants: Map<string, { x: number; y: number }>;
+        }
+      ).participants;
+      const other = participants.get('socket-other')!;
+      other.x = dummy.x + TILE_SIZE;
+      other.y = dummy.y;
+
+      const now = Date.now();
+      const first = service.damageTrainingDummy(
+        'socket-other',
+        { dummyId: dummy.id, damage: 30, kind: 'melee' },
+        now,
+      );
+      expect(first.error).toBeUndefined();
+      expect(first.hit?.hp).toBe(70);
+      expect(first.hit?.attackerId).toBe('socket-other');
+      expect(first.killed).toBeUndefined();
+
+      // 너무 빠른 연타는 무시한다.
+      const tooFast = service.damageTrainingDummy(
+        'socket-other',
+        { dummyId: dummy.id, damage: 30, kind: 'melee' },
+        now + 10,
+      );
+      expect(tooFast.hit).toBeUndefined();
+
+      const miss = service.damageTrainingDummy(
+        'socket-owner',
+        { dummyId: dummy.id, damage: 999, isMiss: true, kind: 'melee' },
+        now + 500,
+      );
+      expect(miss.hit?.damage).toBe(0);
+      expect(miss.hit?.hp).toBe(70);
+
+      const killing = service.damageTrainingDummy(
+        'socket-other',
+        { dummyId: dummy.id, damage: 1000, isCritical: true, kind: 'spell' },
+        now + 1000,
+      );
+      expect(killing.hit?.hp).toBe(0);
+      expect(killing.hit?.isCritical).toBe(true);
+      expect(killing.killed?.id).toBe(dummy.id);
+      expect(getMonsters(service).some((m) => m.id === dummy.id)).toBe(false);
+    });
+
+    it('rejects melee hits from far away and removes the dummy when the owner leaves', () => {
+      service.addParticipant(createMember('owner'), 'socket-owner', 0);
+      const dummy = service.spawnTrainingDummy('socket-owner').dummy!;
+
+      // 소환자를 멀리 옮긴다(맵 반대편으로 순간이동시키는 대신 좌표를 직접 바꾼다).
+      const participants = (
+        service as unknown as {
+          participants: Map<string, { x: number; y: number }>;
+        }
+      ).participants;
+      const owner = participants.get('socket-owner')!;
+      owner.x = dummy.x + TILE_SIZE * 5;
+      owner.y = dummy.y;
+
+      const far = service.damageTrainingDummy('socket-owner', {
+        dummyId: dummy.id,
+        damage: 10,
+        kind: 'melee',
+      });
+      expect(far.error).toBeDefined();
+
+      const spell = service.damageTrainingDummy('socket-owner', {
+        dummyId: dummy.id,
+        damage: 10,
+        kind: 'spell',
+      });
+      expect(spell.hit?.hp).toBe(dummy.maxHp! - 10);
+
+      const removed = service.removeTrainingDummiesOwnedBy('socket-owner');
+      expect(removed.map((m) => m.id)).toEqual([dummy.id]);
+      expect(getMonsters(service)).toHaveLength(0);
+    });
+  });
+
   it('clears activity tracking when a participant is removed', () => {
     service.addGuestParticipant('guest-socket-1', '127.0.0.1');
     service.removeParticipant('guest-socket-1');

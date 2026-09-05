@@ -11,7 +11,12 @@ import { Logger } from '@nestjs/common';
 import { Namespace, Socket } from 'socket.io';
 import { MemberService } from '../member/member.service';
 import { UserService } from '../user/user.service';
-import { ChannelRenderState, type ChannelMonster } from './channel.service';
+import {
+  ChannelRenderState,
+  type ChannelMonster,
+  type TrainingDummyDamagePayload,
+  type TrainingDummySpawnPayload,
+} from './channel.service';
 import { ChannelWorldsService } from './channel-worlds.service';
 import { normalizeChannelKey, type ChannelKey } from './map-collision';
 
@@ -145,9 +150,15 @@ export class ChannelGateway
   handleDisconnect(client: Socket): void {
     this.clearChannelPointTimer(client.id);
     const channelKey = this.getClientChannelKey(client);
-    const removed = this.channelWorldsService
-      .get(channelKey)
-      .removeParticipant(client.id);
+    const channelService = this.channelWorldsService.get(channelKey);
+    const removed = channelService.removeParticipant(client.id);
+
+    // 소환자가 나가면 그 사람의 허수아비도 같이 치운다.
+    for (const dummy of channelService.removeTrainingDummiesOwnedBy(
+      client.id,
+    )) {
+      this.emitMonsterRemoved(channelKey, dummy, 'expired');
+    }
 
     if (removed) {
       this.server
@@ -290,6 +301,97 @@ export class ChannelGateway
         .to(this.getRoomName(channelKey))
         .emit('channel:monster-spawned', result.monster);
     }
+  }
+
+  /** 허수아비 소환. 참가자 앞 한 칸에 놓고 채널 전체에 몬스터로 뿌린다. */
+  @SubscribeMessage('dummy:spawn')
+  handleTrainingDummySpawn(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: TrainingDummySpawnPayload | undefined,
+  ): void {
+    this.markClientActive(client);
+
+    const channelKey = this.getClientChannelKey(client);
+    const result = this.channelWorldsService
+      .get(channelKey)
+      .spawnTrainingDummy(client.id, {
+        maxHp: this.toOptionalNumber(payload?.maxHp),
+        ac: this.toOptionalNumber(payload?.ac),
+        name: typeof payload?.name === 'string' ? payload.name : undefined,
+        renderId: this.toOptionalNumber(payload?.renderId),
+        renderColor: this.toOptionalNumber(payload?.renderColor),
+      });
+
+    if (result.error) {
+      client.emit('channel:error', { message: result.error });
+      return;
+    }
+
+    if (result.replaced) {
+      this.emitMonsterRemoved(channelKey, result.replaced, 'expired');
+    }
+
+    if (result.dummy) {
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:monster-spawned', result.dummy);
+    }
+  }
+
+  /**
+   * 허수아비 피격. 데미지는 때린 클라이언트가 자기 스탯으로 계산해 보낸다.
+   * 서버는 HP를 깎아 모두에게 알리고, 0이 되면 쓰러뜨린다.
+   */
+  @SubscribeMessage('dummy:damage')
+  handleTrainingDummyDamage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: Partial<TrainingDummyDamagePayload> | undefined,
+  ): void {
+    if (
+      typeof payload?.dummyId !== 'string' ||
+      typeof payload?.damage !== 'number' ||
+      (payload.kind !== 'melee' && payload.kind !== 'spell')
+    ) {
+      return;
+    }
+
+    this.markClientActive(client);
+
+    const channelKey = this.getClientChannelKey(client);
+    const result = this.channelWorldsService
+      .get(channelKey)
+      .damageTrainingDummy(client.id, {
+        dummyId: payload.dummyId,
+        damage: payload.damage,
+        isCritical: payload.isCritical === true,
+        isMiss: payload.isMiss === true,
+        kind: payload.kind,
+        skillCode:
+          this.toOptionalNumber(payload.skillCode ?? undefined) ?? null,
+        spellName:
+          typeof payload.spellName === 'string' ? payload.spellName : null,
+      });
+
+    if (result.error) {
+      client.emit('channel:error', { message: result.error });
+      return;
+    }
+
+    if (result.hit) {
+      this.server
+        .to(this.getRoomName(channelKey))
+        .emit('channel:dummy-damaged', result.hit);
+    }
+
+    if (result.killed) {
+      this.emitMonsterRemoved(channelKey, result.killed, 'hit');
+    }
+  }
+
+  private toOptionalNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : undefined;
   }
 
   private extractSessionToken(cookieHeader?: string): string | null {
@@ -576,8 +678,7 @@ export class ChannelGateway
       (payload?.hair === undefined || typeof payload.hair === 'number') &&
       (payload?.hairc === undefined || typeof payload.hairc === 'number') &&
       (payload?.riding === undefined || typeof payload.riding === 'number') &&
-      (payload?.bodyDye === undefined ||
-        typeof payload.bodyDye === 'number') &&
+      (payload?.bodyDye === undefined || typeof payload.bodyDye === 'number') &&
       (payload?.weaponDye === undefined ||
         typeof payload.weaponDye === 'number') &&
       this.isNullableString(payload?.emotionKey) &&

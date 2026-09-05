@@ -25,6 +25,68 @@ export interface ChannelMonster {
    * 운영자가 수동으로 소환한 몬스터에는 존재하지 않는다.
    */
   presetKey?: string;
+  /**
+   * 허수아비(수련용 표적). 참가자가 자기 앞에 소환하고 모두가 때릴 수 있다.
+   * 평타 판정으로는 사라지지 않고 `dummy:damage`로 받은 데미지만큼 HP가 줄어든다.
+   */
+  kind?: 'dummy';
+  /** 허수아비 소환자의 소켓 id. 소환자가 나가면 함께 사라진다. */
+  ownerId?: string;
+  ownerName?: string;
+  hp?: number;
+  maxHp?: number;
+  /** 허수아비 방어력(AC). 데미지 계산은 클라이언트가 하므로 서버는 값만 보관한다. */
+  ac?: number;
+}
+
+export interface TrainingDummySpawnPayload {
+  maxHp?: number;
+  ac?: number;
+  /** 몬스터 도감에서 고른 이름. 없으면 '허수아비'. */
+  name?: string;
+  /** 원작 mon.dat 렌더 id/색. 없으면 목각인형. */
+  renderId?: number;
+  renderColor?: number;
+}
+
+export interface TrainingDummyDamagePayload {
+  dummyId: string;
+  damage: number;
+  isCritical?: boolean;
+  isMiss?: boolean;
+  kind: 'melee' | 'spell';
+  /** 마법 이펙트(채널 스킬 gif 번호). 다른 참가자 화면에도 같은 이펙트를 띄운다. */
+  skillCode?: number | null;
+  spellName?: string | null;
+}
+
+export interface TrainingDummySpawnResult {
+  error?: string;
+  dummy?: ChannelMonster;
+  /** 같은 소환자의 이전 허수아비. 교체됐으면 제거 알림을 보낸다. */
+  replaced?: ChannelMonster;
+}
+
+export interface TrainingDummyHitEvent {
+  dummyId: string;
+  attackerId: string;
+  attackerName: string;
+  damage: number;
+  isCritical: boolean;
+  isMiss: boolean;
+  kind: 'melee' | 'spell';
+  skillCode: number | null;
+  spellName: string | null;
+  hp: number;
+  maxHp: number;
+  hitAt: string;
+}
+
+export interface TrainingDummyDamageResult {
+  error?: string;
+  hit?: TrainingDummyHitEvent;
+  /** HP가 0이 되어 쓰러진 허수아비. */
+  killed?: ChannelMonster;
 }
 
 /**
@@ -154,6 +216,18 @@ export class ChannelService {
     ];
   private static readonly MAX_MONSTER_RENDER_ID = 616;
   private static readonly MONSTER_RENDER_COLOR_COUNT = 3;
+  // 허수아비: 원작 mon.dat의 목각인형(옛날바람 MobData image 193 → 채널 렌더 id 192).
+  private static readonly TRAINING_DUMMY_RENDER_ID = 192;
+  private static readonly TRAINING_DUMMY_RENDER_COLOR = 4;
+  private static readonly TRAINING_DUMMY_NAME = '허수아비';
+  private static readonly TRAINING_DUMMY_DEFAULT_MAX_HP = 100_000_000;
+  private static readonly TRAINING_DUMMY_MAX_MAX_HP = 999_999_999_999;
+  private static readonly TRAINING_DUMMY_MIN_AC = -999;
+  private static readonly TRAINING_DUMMY_MAX_AC = 99;
+  private static readonly TRAINING_DUMMY_MAX_DAMAGE = 999_999_999_999;
+  // 마법은 떨어져서도 맞힐 수 있다. 이 거리(타일) 안이면 인정한다.
+  private static readonly TRAINING_DUMMY_SPELL_RANGE_TILES = 8;
+  private static readonly TRAINING_DUMMY_DAMAGE_COOLDOWN_MS = 80;
   private static readonly ATTACK_HIT_FORWARD_RANGE =
     ChannelService.TILE_SIZE * 1.35;
   private static readonly ATTACK_HIT_LATERAL_RANGE =
@@ -179,6 +253,7 @@ export class ChannelService {
   private readonly lastChattedAt = new Map<string, number>();
   private readonly lastActiveAt = new Map<string, number>();
   private readonly lastMonsterMovedAtById = new Map<string, number>();
+  private readonly lastDummyDamagedAtBySocketId = new Map<string, number>();
   private lastPopulationRefillAt = 0;
 
   private readonly collision: MapCollision;
@@ -629,6 +704,295 @@ export class ChannelService {
     return monster;
   }
 
+  /**
+   * 참가자가 바라보는 방향 한 칸 앞에 허수아비를 놓는다. 1인 1개라 이미 있으면 교체한다.
+   * 앞 칸이 막혀 있거나 누가 서 있으면 그 주변의 빈 칸으로 옮긴다.
+   */
+  spawnTrainingDummy(
+    socketId: string,
+    payload: TrainingDummySpawnPayload = {},
+    now = Date.now(),
+  ): TrainingDummySpawnResult {
+    const participant = this.participants.get(socketId) ?? null;
+
+    if (!participant || participant.isLobbyChatOnly) {
+      return { error: '허수아비를 소환할 수 있는 사용자를 찾을 수 없습니다.' };
+    }
+
+    const replaced = this.findTrainingDummyOwnedBy(socketId);
+    if (replaced) {
+      this.detachMonster(replaced.id);
+    }
+
+    if (this.monsters.size >= ChannelService.MAX_MONSTERS) {
+      if (replaced) {
+        this.registerMonster(replaced, now);
+      }
+      return { error: '지금은 허수아비를 더 놓을 수 없습니다.' };
+    }
+
+    const position = this.findTrainingDummyPosition(participant);
+    const maxHp = this.normalizeTrainingDummyMaxHp(payload.maxHp);
+    const hasRender =
+      typeof payload.renderId === 'number' &&
+      Number.isFinite(payload.renderId) &&
+      payload.renderId >= 0 &&
+      payload.renderId <= ChannelService.MAX_MONSTER_RENDER_ID;
+    const name =
+      typeof payload.name === 'string' && payload.name.trim().length > 0
+        ? payload.name.trim().slice(0, 24)
+        : ChannelService.TRAINING_DUMMY_NAME;
+    const dummy: ChannelMonster = {
+      id: `dummy:${now}:${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      renderId: hasRender
+        ? Math.trunc(payload.renderId as number)
+        : ChannelService.TRAINING_DUMMY_RENDER_ID,
+      renderColor: hasRender
+        ? this.clamp(Math.trunc(payload.renderColor ?? 0), 0, 255)
+        : ChannelService.TRAINING_DUMMY_RENDER_COLOR,
+      x: position.x,
+      y: position.y,
+      direction: this.getOppositeDirection(participant.direction),
+      spawnedAt: new Date(now).toISOString(),
+      expiresAt: ChannelService.PERSISTENT_MONSTER_EXPIRES_AT,
+      kind: 'dummy',
+      ownerId: socketId,
+      ownerName: participant.displayName,
+      hp: maxHp,
+      maxHp,
+      ac: this.normalizeTrainingDummyAc(payload.ac),
+    };
+
+    this.registerMonster(dummy, now);
+
+    return { dummy, replaced: replaced ?? undefined };
+  }
+
+  /**
+   * 허수아비에 데미지를 준다. 데미지 자체는 때린 쪽 클라이언트가 자기 스탯으로 계산해 보내고,
+   * 서버는 존재·거리·빈도만 검사하고 HP를 깎아 모두에게 알린다.
+   */
+  damageTrainingDummy(
+    socketId: string,
+    payload: TrainingDummyDamagePayload,
+    now = Date.now(),
+  ): TrainingDummyDamageResult {
+    const participant = this.participants.get(socketId) ?? null;
+
+    if (!participant || participant.isLobbyChatOnly) {
+      return { error: '허수아비를 때릴 수 있는 사용자를 찾을 수 없습니다.' };
+    }
+
+    const dummy = this.monsters.get(payload.dummyId) ?? null;
+    if (!dummy || dummy.kind !== 'dummy') {
+      return { error: '허수아비가 없습니다.' };
+    }
+
+    const lastDamagedAt = this.lastDummyDamagedAtBySocketId.get(socketId) ?? 0;
+    if (
+      now - lastDamagedAt <
+      ChannelService.TRAINING_DUMMY_DAMAGE_COOLDOWN_MS
+    ) {
+      return {};
+    }
+
+    const tileDistance = Math.max(
+      Math.abs(dummy.x - participant.x),
+      Math.abs(dummy.y - participant.y),
+    );
+    const maxDistance =
+      (payload.kind === 'spell'
+        ? ChannelService.TRAINING_DUMMY_SPELL_RANGE_TILES
+        : 1) * ChannelService.TILE_SIZE;
+    if (tileDistance > maxDistance + ChannelService.TILE_SIZE / 2) {
+      return { error: '허수아비가 너무 멀리 있습니다.' };
+    }
+
+    this.lastDummyDamagedAtBySocketId.set(socketId, now);
+
+    const isMiss = payload.isMiss === true;
+    const damage = isMiss
+      ? 0
+      : this.normalizeTrainingDummyDamage(payload.damage);
+    const previousHp = dummy.hp ?? dummy.maxHp ?? 0;
+    const nextHp = Math.max(0, previousHp - damage);
+    const maxHp = dummy.maxHp ?? previousHp;
+    const skillCode =
+      typeof payload.skillCode === 'number' &&
+      Number.isFinite(payload.skillCode)
+        ? Math.trunc(payload.skillCode)
+        : null;
+    const spellName =
+      typeof payload.spellName === 'string' && payload.spellName.length > 0
+        ? payload.spellName.slice(0, 30)
+        : null;
+
+    const hit: TrainingDummyHitEvent = {
+      dummyId: dummy.id,
+      attackerId: socketId,
+      attackerName: participant.displayName,
+      damage,
+      isCritical: payload.isCritical === true && !isMiss,
+      isMiss,
+      kind: payload.kind === 'spell' ? 'spell' : 'melee',
+      skillCode,
+      spellName,
+      hp: nextHp,
+      maxHp,
+      hitAt: new Date(now).toISOString(),
+    };
+
+    if (nextHp <= 0) {
+      this.detachMonster(dummy.id);
+      return { hit, killed: { ...dummy, hp: 0 } };
+    }
+
+    this.monsters.set(dummy.id, { ...dummy, hp: nextHp });
+    return { hit };
+  }
+
+  /** 소환자가 나갈 때 그 사람의 허수아비를 치운다. */
+  removeTrainingDummiesOwnedBy(socketId: string): ChannelMonster[] {
+    const removed: ChannelMonster[] = [];
+
+    for (const monster of this.monsters.values()) {
+      if (monster.kind === 'dummy' && monster.ownerId === socketId) {
+        this.detachMonster(monster.id);
+        removed.push(monster);
+      }
+    }
+
+    this.lastDummyDamagedAtBySocketId.delete(socketId);
+    return removed;
+  }
+
+  findTrainingDummyOwnedBy(socketId: string): ChannelMonster | null {
+    for (const monster of this.monsters.values()) {
+      if (monster.kind === 'dummy' && monster.ownerId === socketId) {
+        return monster;
+      }
+    }
+
+    return null;
+  }
+
+  private findTrainingDummyPosition(participant: ChannelParticipant) {
+    const tileX = Math.round(participant.x / ChannelService.TILE_SIZE);
+    const tileY = Math.round(participant.y / ChannelService.TILE_SIZE);
+    const forward = this.getDirectionDelta(participant.direction);
+    const frontTileX = this.clamp(tileX + forward.dx, 0, this.maxTileX);
+    const frontTileY = this.clamp(tileY + forward.dy, 0, this.maxTileY);
+
+    if (
+      !this.isWalkDisabledTile(frontTileX, frontTileY) &&
+      !this.isTileOccupied(frontTileX, frontTileY)
+    ) {
+      return this.toWorldPosition(frontTileX, frontTileY);
+    }
+
+    // 앞 칸이 막혀 있으면 앞 칸 주변에서 가장 가까운 빈 칸을 고른다(참가자 자리는 제외).
+    for (let index = 0; index < 24; index += 1) {
+      const tile = this.findNearbyWalkableTile(frontTileX, frontTileY, index);
+      if (
+        !(tile.x === tileX && tile.y === tileY) &&
+        !this.isTileOccupied(tile.x, tile.y)
+      ) {
+        return this.toWorldPosition(tile.x, tile.y);
+      }
+    }
+
+    return this.toWorldPosition(frontTileX, frontTileY);
+  }
+
+  private isTileOccupied(tileX: number, tileY: number) {
+    const position = this.toWorldPosition(tileX, tileY);
+    const isSame = (x: number, y: number) =>
+      Math.abs(x - position.x) < ChannelService.TILE_SIZE / 2 &&
+      Math.abs(y - position.y) < ChannelService.TILE_SIZE / 2;
+
+    for (const monster of this.monsters.values()) {
+      if (isSame(monster.x, monster.y)) {
+        return true;
+      }
+    }
+
+    for (const participant of this.participants.values()) {
+      if (
+        !participant.isLobbyChatOnly &&
+        isSame(participant.x, participant.y)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private getDirectionDelta(direction: ChannelDirection) {
+    switch (direction) {
+      case 'up':
+        return { dx: 0, dy: -1 };
+      case 'down':
+        return { dx: 0, dy: 1 };
+      case 'left':
+        return { dx: -1, dy: 0 };
+      case 'right':
+      default:
+        return { dx: 1, dy: 0 };
+    }
+  }
+
+  private getOppositeDirection(direction: ChannelDirection): ChannelDirection {
+    switch (direction) {
+      case 'up':
+        return 'down';
+      case 'down':
+        return 'up';
+      case 'left':
+        return 'right';
+      case 'right':
+      default:
+        return 'left';
+    }
+  }
+
+  private normalizeTrainingDummyMaxHp(value: number | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return ChannelService.TRAINING_DUMMY_DEFAULT_MAX_HP;
+    }
+
+    return this.clamp(
+      Math.trunc(value),
+      1,
+      ChannelService.TRAINING_DUMMY_MAX_MAX_HP,
+    );
+  }
+
+  private normalizeTrainingDummyAc(value: number | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 0;
+    }
+
+    return this.clamp(
+      Math.trunc(value),
+      ChannelService.TRAINING_DUMMY_MIN_AC,
+      ChannelService.TRAINING_DUMMY_MAX_AC,
+    );
+  }
+
+  private normalizeTrainingDummyDamage(value: number) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 0;
+    }
+
+    return this.clamp(
+      Math.trunc(value),
+      0,
+      ChannelService.TRAINING_DUMMY_MAX_DAMAGE,
+    );
+  }
+
   removeExpiredMonsters(now = Date.now()): ChannelMonster[] {
     const removed: ChannelMonster[] = [];
 
@@ -712,6 +1076,11 @@ export class ChannelService {
     const moved: ChannelMonster[] = [];
 
     for (const monster of this.monsters.values()) {
+      // 허수아비는 제자리에 서 있다.
+      if (monster.kind === 'dummy') {
+        continue;
+      }
+
       const lastMovedAt = this.lastMonsterMovedAtById.get(monster.id) ?? 0;
 
       if (now - lastMovedAt < ChannelService.MONSTER_MOVE_INTERVAL_MS) {
@@ -956,7 +1325,7 @@ export class ChannelService {
   }
 
   private isPersistentMonster(monster: ChannelMonster): boolean {
-    return typeof monster.presetKey === 'string';
+    return typeof monster.presetKey === 'string' || monster.kind === 'dummy';
   }
 
   private shouldRemovePopulationMonster(monster: ChannelMonster): boolean {
@@ -1012,6 +1381,11 @@ export class ChannelService {
     let closestLateralDistance = Number.POSITIVE_INFINITY;
 
     for (const monster of this.monsters.values()) {
+      // 허수아비는 평타 판정으로 사라지지 않는다. 데미지는 dummy:damage 로만 받는다.
+      if (monster.kind === 'dummy') {
+        continue;
+      }
+
       const candidate = this.getDirectionalAttackCandidate(
         participant.direction,
         participant.x,
