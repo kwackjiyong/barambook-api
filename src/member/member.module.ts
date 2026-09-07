@@ -5,6 +5,7 @@ import { MemberController } from './member.controller';
 import { MemberSchema } from './member.schema';
 import { MemberSessionGuard } from './member-session.guard';
 import { MemberService } from './member.service';
+import { OperatorGuard } from './operator.guard';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { MemberService } from './member.service';
     RendererModule,
   ],
   controllers: [MemberController],
-  providers: [MemberService, MemberSessionGuard],
-  exports: [MemberService, MemberSessionGuard],
+  providers: [MemberService, MemberSessionGuard, OperatorGuard],
+  exports: [MemberService, MemberSessionGuard, OperatorGuard],
 })
 export class MemberModule {}
