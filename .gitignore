@@ -11,6 +11,7 @@ dist/
 # 로그 파일
 *.log
 logs/
+.runtime/
 
 # TypeScript 빌드 캐시
 *.tsbuildinfo

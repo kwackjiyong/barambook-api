@@ -189,6 +189,18 @@ export class ChannelGateway
     }
   }
 
+  @SubscribeMessage('campfire:place')
+  handleCampfire(@ConnectedSocket() client: Socket): void {
+    this.markClientActive(client);
+    const key = this.getClientChannelKey(client);
+    const result = this.channelWorldsService.get(key).placeCampfire(client.id);
+    if (result.error) {
+      client.emit('channel:error', { message: result.error });
+    } else if (result.fire) {
+      this.server.to(this.getRoomName(key)).emit('channel:campfire-placed', result.fire);
+    }
+  }
+
   @SubscribeMessage('chat:send')
   handleChat(
     @ConnectedSocket() client: Socket,
@@ -607,6 +619,10 @@ export class ChannelGateway
         channelService,
       ] of this.channelWorldsService.entries()) {
         const roomName = this.getRoomName(channelKey);
+
+        for (const fire of channelService.removeExpiredCampfires()) {
+          this.server.to(roomName).emit('channel:campfire-removed', { id: fire.id });
+        }
 
         for (const socketId of channelService.getParticipantSocketIds()) {
           if (this.server.sockets.has(socketId)) {

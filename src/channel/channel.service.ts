@@ -1,5 +1,7 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { Member } from '../member/member.schema';
+import { join } from 'node:path';
+import { CampfireStore } from './campfire-store';
 import { resolveGrade, type MemberGrade } from '../member/grade';
 import {
   BUYEO_MAP_CONFIG,
@@ -183,6 +185,7 @@ interface MovePayload {
 
 @Injectable()
 export class ChannelService {
+  private readonly campfires: CampfireStore;
   private static readonly TILE_SIZE = 24;
   private static readonly MAX_STEP = 24;
   private static readonly MAX_MESSAGE_LENGTH = 50;
@@ -266,6 +269,9 @@ export class ChannelService {
     collision: MapCollision = buildFallbackCollision(BUYEO_MAP_CONFIG),
   ) {
     this.collision = collision;
+    this.campfires = new CampfireStore(process.env.CHANNEL_CAMPFIRE_DIR
+      ? join(process.env.CHANNEL_CAMPFIRE_DIR, `${config.channelKey}.json`)
+      : undefined);
     this.respawnCenterTileX = config.respawnCenterTileX;
     this.respawnCenterTileY = config.respawnCenterTileY;
     this.monsterPopulationPresets =
@@ -669,7 +675,25 @@ export class ChannelService {
       participants: Array.from(this.participants.values()),
       monsters: Array.from(this.monsters.values()),
       messages: [...this.messages],
+      campfires: this.campfires.list(),
     };
+  }
+
+  placeCampfire(socketId: string, now = Date.now()) {
+    const participant = this.participants.get(socketId);
+    if (!participant || participant.isLobbyChatOnly) {
+      return { error: '맵에 접속한 뒤 모닥불을 피워 주세요.' };
+    }
+    const directions = { up: [0, -24], down: [0, 24], left: [-24, 0], right: [24, 0] };
+    const [dx, dy] = directions[participant.direction];
+    const x = participant.x + dx;
+    const y = participant.y + dy;
+    if (!this.isWalkablePosition(x, y)) return { error: '앞 칸이 막혀 있습니다. 빈 곳을 바라봐 주세요.' };
+    return this.campfires.place(x, y, now);
+  }
+
+  removeExpiredCampfires(now = Date.now()) {
+    return this.campfires.expire(now);
   }
 
   spawnMonster(socketId?: string | null): ChannelMonsterSpawnResult {
