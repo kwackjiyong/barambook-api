@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
+import { EstimateRankingDto } from './dto/estimate-ranking.dto';
 import { SearchRankingDto } from './dto/search-ranking.dto';
 import { UpsertRankingDto } from './dto/upsert-ranking.dto';
 import { RANKING_VISIBLE_LIMIT, RankingService } from './ranking.service';
@@ -34,6 +35,22 @@ export class RankingController {
     const items = await this.rankingService.searchByName(query.name);
 
     return { limit: RANKING_VISIBLE_LIMIT, items };
+  }
+
+  /** 점수를 넣으면 같은 직업 수집 랭킹에서 몇 위쯤인지 가늠해 준다. */
+  @Get('estimate')
+  async estimate(
+    @Query(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    )
+    query: EstimateRankingDto,
+  ) {
+    const points = query.points.split(',').map(Number);
+    return this.rankingService.estimateRanks(query.class, points);
   }
 
   /** 스캔 앱이 직업 하나의 랭킹(최대 1000행)을 올린다. */

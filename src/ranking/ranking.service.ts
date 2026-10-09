@@ -185,6 +185,31 @@ export class RankingService {
     }));
   }
 
+  /**
+   * 같은 직업 수집 랭킹에서 주어진 점수의 예상 순위를 구한다.
+   * 해당 점수보다 높은 캐릭터 수 + 1 이 순위이고, 노출 상한(1000위)을 넘으면 rank 는 null(순위 밖).
+   */
+  async estimateRanks(rankingClass: string, points: number[]) {
+    const rows = await this.userV3Model
+      .find({ Class: rankingClass, Point: { $ne: null } }, { Point: 1, _id: 0 })
+      .lean()
+      .exec();
+    const sorted = rows.map((row) => row.Point as number).sort((a, b) => b - a);
+    const cutoff = sorted.length >= RANKING_VISIBLE_LIMIT ? sorted[RANKING_VISIBLE_LIMIT - 1] : null;
+
+    return {
+      limit: RANKING_VISIBLE_LIMIT,
+      class: rankingClass,
+      total: sorted.length,
+      cutoffPoint: cutoff,
+      results: points.map((point) => {
+        const higher = sorted.filter((p) => p > point).length;
+        const rank = higher + 1;
+        return { point, rank: rank > RANKING_VISIBLE_LIMIT || sorted.length === 0 ? null : rank };
+      }),
+    };
+  }
+
   private normalizeRows(
     rows: RankingRowDto[],
     rankingClass: RankingClass,
