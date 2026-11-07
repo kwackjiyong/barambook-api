@@ -6,11 +6,13 @@ import {
   Post,
   Query,
   UnauthorizedException,
+  UseInterceptors,
   ValidationPipe,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import { IngestMswEventsDto } from './dto/ingest-msw-events.dto';
 import { MswAnalyticsService } from './msw-analytics.service';
+import { NoStoreInterceptor } from './no-store.interceptor';
 
 // 바람클래식 MSW 게임 서버(BaramAnalytics550)와 공유하는 키는 환경변수 MSW_ANALYTICS_KEY로만 받는다.
 // 게임 쪽 값은 서버 전용 데이터셋 BaramAnalyticsConfig550의 apiKey 행이다. 둘이 같아야 한다.
@@ -35,6 +37,7 @@ function clampLimit(raw: string | undefined, fallback: number) {
 }
 
 @Controller('msw-analytics')
+@UseInterceptors(NoStoreInterceptor)
 export class MswAnalyticsController {
   constructor(private readonly service: MswAnalyticsService) {}
 
