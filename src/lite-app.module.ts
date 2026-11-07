@@ -7,6 +7,7 @@ import { SkillModule } from './guide/skill/skill.module';
 import { ChannelModule } from './channel/channel.module';
 import { MapModule } from './map/map.module';
 import { RankingModule } from './ranking/ranking.module';
+import { MswAnalyticsModule } from './msw-analytics/msw-analytics.module';
 
 dotenv.config();
 
@@ -31,6 +32,7 @@ dotenv.config();
     ChannelModule,
     MapModule,
     RankingModule,
+    MswAnalyticsModule,
   ],
 })
 export class LiteAppModule {}
