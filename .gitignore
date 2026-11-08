@@ -6,6 +6,7 @@ dist/
 
 # 환경설정 파일 (민감 정보가 포함될 수 있음)
 .env
+.env.local
 .env.*.local
 
 # 로그 파일
