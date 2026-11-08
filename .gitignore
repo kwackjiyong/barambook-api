@@ -26,3 +26,6 @@ logs/
 # 운영체제 관련 파일
 .DS_Store
 Thumbs.db
+
+# 플레이 기록 대시보드 키 (tools/msw-dashboard/server.mjs)
+/tools/msw-dashboard/.key

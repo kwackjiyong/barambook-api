@@ -64,9 +64,10 @@ export class MswEvent extends Document {
 }
 
 export const MswEventSchema = SchemaFactory.createForClass(MswEvent);
-MswEventSchema.index({ at: -1 });
-MswEventSchema.index({ userId: 1, at: -1 });
-MswEventSchema.index({ type: 1, at: -1 });
+// 목록은 (at, _id) 최신순으로 쪽을 넘기므로 인덱스도 _id까지 포함해야 메모리 정렬을 피한다.
+MswEventSchema.index({ at: -1, _id: -1 });
+MswEventSchema.index({ userId: 1, at: -1, _id: -1 });
+MswEventSchema.index({ type: 1, at: -1, _id: -1 });
 // 보관 기간을 바꿀 때는 chat_messages와 같이 DB에서 TTL 인덱스를 직접 재생성해야 한다.
 MswEventSchema.index(
   { createdAt: 1 },
@@ -112,3 +113,63 @@ export class MswPlayer extends Document {
 }
 
 export const MswPlayerSchema = SchemaFactory.createForClass(MswPlayer);
+MswPlayerSchema.index({ name: 1 });
+MswPlayerSchema.index({ firstSeenAt: 1 });
+MswPlayerSchema.index({ maxLevel: -1, lastSeenAt: -1 });
+MswPlayerSchema.index({ playSeconds: -1 });
+MswEventSchema.index({ name: 1, at: -1, _id: -1 });
+
+/**
+ * KST 하루 단위 집계. 이벤트가 들어올 때 같이 갱신되어 대시보드의 일별 그래프가
+ * 이벤트 원본(수백만 건)을 훑지 않게 한다. _id = 'YYYY-MM-DD' (KST).
+ */
+@Schema({ collection: 'msw_daily', versionKey: false })
+export class MswDaily extends Document {
+  @Prop({ type: String, required: true })
+  _id: string;
+
+  /** 그날 이벤트를 하나라도 남긴 계정 수 (msw_daily_users 신규 삽입 수). */
+  @Prop({ type: Number, default: 0 })
+  users: number;
+
+  /** 그날 처음 들어온 계정 수. */
+  @Prop({ type: Number, default: 0 })
+  newPlayers: number;
+
+  @Prop({ type: Number, default: 0 })
+  logins: number;
+
+  @Prop({ type: Number, default: 0 })
+  playSeconds: number;
+
+  /** 이벤트 종류별 건수. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  events: Record<string, number>;
+}
+
+export const MswDailySchema = SchemaFactory.createForClass(MswDaily);
+
+/** (하루, 계정) 한 쌍당 한 문서. 일별 접속자 수를 정확히 세는 데만 쓴다. */
+@Schema({ collection: 'msw_daily_users', versionKey: false })
+export class MswDailyUser extends Document {
+  /** 'YYYY-MM-DD|userId'. */
+  @Prop({ type: String, required: true })
+  _id: string;
+
+  @Prop({ type: String, required: true })
+  day: string;
+
+  @Prop({ type: String, required: true })
+  userId: string;
+
+  @Prop({ type: Date, required: true })
+  createdAt: Date;
+}
+
+export const MswDailyUserSchema = SchemaFactory.createForClass(MswDailyUser);
+MswDailyUserSchema.index({ day: 1 });
+// 일별 접속자 수는 msw_daily.users에 이미 남으므로 쌍 자체는 이벤트와 같이 1년 뒤 지운다.
+MswDailyUserSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: MSW_EVENT_RETENTION_DAYS * 24 * 60 * 60 },
+);
